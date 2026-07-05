@@ -1,6 +1,10 @@
-# Minutas PMO Antamina
+# Scribe · Minutas PMO Antamina
 
 Herramienta web para el equipo PMO de Antamina (Minsait): pega la transcripción de una llamada de Teams y genera una minuta accionable de seguimiento, lista para enviar por correo a los interesados del proyecto.
+
+**Versión web (sin instalación):** https://nelson2206.github.io/minutas-pmo-antamina/ — corre 100% en el navegador con Gemini: cada usuario pega su propia API key de [Google AI Studio](https://aistudio.google.com/apikey) (se guarda solo en su navegador, igual que los proyectos y acuerdos). El código está en [`docs/`](docs/).
+
+**Versión servidor (este repo, raíz):** Node.js + Express con la API key en el servidor (`.env`) y datos en disco — para desplegar en Render/Vercel con una key compartida por el equipo.
 
 ## Qué hace
 
