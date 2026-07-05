@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minutas PMO Antamina</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>Generador de Minutas</h1>
+    <p>PMO Antamina · Minsait Business Consulting</p>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="paso1">
+    <h2>1 · Proyecto y transcripción</h2>
+    <div class="row">
+      <div class="field grow">
+        <label for="projectSelect">Proyecto</label>
+        <select id="projectSelect"></select>
+      </div>
+      <button class="btn secondary" id="btnNuevoProyecto">+ Nuevo proyecto</button>
+      <button class="btn secondary" id="btnEditarProyecto">Editar destinatarios</button>
+    </div>
+    <p class="hint" id="stakeholdersHint"></p>
+    <div class="field">
+      <label for="transcript">Transcripción de la reunión de Teams</label>
+      <textarea id="transcript" rows="12" placeholder="Pega aquí la transcripción completa de la llamada de Teams..."></textarea>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="btnGenerar">Generar minuta</button>
+      <span id="status" class="status"></span>
+    </div>
+  </section>
+
+  <section class="card hidden" id="paso2">
+    <h2>2 · Revisar y ajustar</h2>
+    <div class="row">
+      <div class="field">
+        <label for="fechaReunion">Fecha de reunión</label>
+        <input type="date" id="fechaReunion">
+      </div>
+      <div class="field grow">
+        <label for="participantes">Participantes (separados por coma)</label>
+        <input type="text" id="participantes">
+      </div>
+      <div class="field grow">
+        <label for="proximaReunion">Próxima reunión (opcional)</label>
+        <input type="text" id="proximaReunion" placeholder="Ej: jueves 10 de julio, 9:00 a. m.">
+      </div>
+    </div>
+
+    <table id="tablaAcuerdos">
+      <thead>
+        <tr>
+          <th>N°</th>
+          <th>Acción / Compromiso</th>
+          <th>Responsable</th>
+          <th>Estado</th>
+          <th>Fecha comprometida</th>
+          <th>Crítico</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <button class="btn secondary" id="btnAgregarFila">+ Agregar acuerdo</button>
+
+    <div class="row actions">
+      <button class="btn secondary" id="btnPreview">Vista previa del correo</button>
+      <button class="btn secondary" id="btnGuardar">Guardar seguimiento</button>
+      <button class="btn primary" id="btnEml">Guardar y descargar correo (.eml)</button>
+      <span id="status2" class="status"></span>
+    </div>
+  </section>
+
+  <section class="card hidden" id="paso3">
+    <h2>3 · Vista previa del correo</h2>
+    <p class="hint">Así se verá el correo en Outlook. El .eml se abre como borrador con los destinatarios del proyecto ya cargados.</p>
+    <iframe id="previewFrame"></iframe>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
