@@ -53,6 +53,7 @@ function seedInicial() {
 
 let projects = [];
 let series = [];
+let adjuntos = []; // {name, type, b64} de la minuta actual (no se persisten)
 
 // ---------- Toasts ----------
 
@@ -388,6 +389,7 @@ ${transcript}`;
     const minuta = await callGemini(system, userMessage);
     minuta.acuerdos = minuta.acuerdos.filter(a => visibleEnMinuta(a, lunesSemana));
     pintarMinuta(minuta);
+    adjuntos = []; renderAdjuntos();
     setStatus('status', '');
     toast(`Minuta generada: ${minuta.acuerdos.length} acuerdo(s).`);
     $('paso2').classList.remove('hidden');
@@ -583,30 +585,98 @@ function htmlToText(html) {
   return tmp.innerText.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function abToB64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+
+// Copia la minuta conservando el formato (varios métodos, del más fiable al de respaldo)
+async function copiarMinuta(html) {
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([htmlToText(html)], { type: 'text/plain' }),
+    })]);
+    return true;
+  } catch { /* sigue */ }
+  try {
+    const h = document.createElement('div');
+    h.contentEditable = 'true';
+    h.style.cssText = 'position:fixed;left:-9999px;top:0;white-space:normal;';
+    h.innerHTML = html;
+    document.body.appendChild(h);
+    const r = document.createRange(); r.selectNodeContents(h);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    const ok = document.execCommand('copy');
+    sel.removeAllRanges(); h.remove();
+    if (ok) return true;
+  } catch { /* sigue */ }
+  try { await navigator.clipboard.writeText(htmlToText(html)); return true; } catch { return false; }
+}
+
+// ---------- Adjuntos ----------
+
+function renderAdjuntos() {
+  $('adjuntosList').innerHTML = adjuntos.map((a, i) =>
+    `<span class="chip" data-i="${i}">📎 ${esc(a.name)} <span class="x" data-i="${i}">×</span></span>`
+  ).join('');
+}
+
+$('btnAddAdjunto').addEventListener('click', () => $('adjuntoFile').click());
+$('adjuntoFile').addEventListener('change', async e => {
+  for (const file of [...e.target.files]) {
+    if (file.size > 12 * 1024 * 1024) { toast(`"${file.name}" supera 12 MB y se omitió.`, 'error'); continue; }
+    const buf = await file.arrayBuffer();
+    adjuntos.push({ name: file.name, type: file.type || 'application/octet-stream', b64: abToB64(buf) });
+  }
+  renderAdjuntos();
+  e.target.value = '';
+});
+$('adjuntosList').addEventListener('click', e => {
+  const x = e.target.closest('.x');
+  if (x) { adjuntos.splice(+x.dataset.i, 1); renderAdjuntos(); }
+});
+
+// Construye el .eml (multipart si hay adjuntos)
+function buildEml(to, subject, html) {
+  const headers = [`To: ${to}`, `Subject: =?utf-8?B?${b64utf8(subject)}?=`, 'X-Unsent: 1', 'MIME-Version: 1.0'];
+  const body = `<html><body>${html}</body></html>`;
+  const htmlPart = b64utf8(body).replace(/(.{76})/g, '$1\r\n');
+  if (!adjuntos.length) {
+    return [...headers, 'Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: base64', '', htmlPart].join('\r\n');
+  }
+  const boundary = 'scribe_' + genId();
+  const parts = [
+    `--${boundary}`, 'Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: base64', '', htmlPart,
+  ];
+  adjuntos.forEach(a => {
+    parts.push(`--${boundary}`,
+      `Content-Type: ${a.type}; name="${a.name}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${a.name}"`,
+      '', a.b64.replace(/(.{76})/g, '$1\r\n'));
+  });
+  parts.push(`--${boundary}--`);
+  return [...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`, '', ...parts].join('\r\n');
+}
+
 $('btnEml').addEventListener('click', () => {
   const p = proyectoActual(), s = serieActual();
   if (!s.stakeholders.length && !confirm('Este tipo de reunión no tiene correos configurados. ¿Descargar el .eml sin destinatarios?')) return;
   const m = guardar();
   const html = renderMinutaHtml(m, p.nombre, s.nombre);
-  const subject = subjectFor(m, p.nombre, s.nombre);
-  const body = `<html><body>${html}</body></html>`;
-  const eml = [
-    `To: ${s.stakeholders.join('; ')}`,
-    `Subject: =?utf-8?B?${b64utf8(subject)}?=`,
-    'X-Unsent: 1',
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-    'Content-Transfer-Encoding: base64',
-    '',
-    b64utf8(body).replace(/(.{76})/g, '$1\r\n'),
-  ].join('\r\n');
+  const eml = buildEml(s.stakeholders.join('; '), subjectFor(m, p.nombre, s.nombre), html);
   const [y, mo, d] = m.fecha_reunion.split('-');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([eml], { type: 'message/rfc822' }));
   a.download = `Minuta ${p.nombre} ${s.nombre} ${d}-${mo}-${y}.eml`;
   a.click();
   URL.revokeObjectURL(a.href);
-  setStatus('status3', 'Seguimiento guardado y .eml descargado. Ábrelo con Outlook: saldrá como borrador listo para enviar.');
+  const conAdj = adjuntos.length ? ` con ${adjuntos.length} adjunto(s)` : '';
+  setStatus('status3', `Seguimiento guardado y .eml${conAdj} descargado. Ábrelo con Outlook: saldrá como borrador listo para enviar.`);
   toast('.eml descargado.');
 });
 
@@ -615,21 +685,14 @@ $('btnOutlookWeb').addEventListener('click', async () => {
   const m = guardar();
   const html = renderMinutaHtml(m, p.nombre, s.nombre);
   const subject = subjectFor(m, p.nombre, s.nombre);
-  let copiado = false;
-  try {
-    await navigator.clipboard.write([new ClipboardItem({
-      'text/html': new Blob([html], { type: 'text/html' }),
-      'text/plain': new Blob([htmlToText(html)], { type: 'text/plain' }),
-    })]);
-    copiado = true;
-  } catch {
-    try { await navigator.clipboard.writeText(htmlToText(html)); copiado = true; } catch { /* sin permiso */ }
-  }
+  const copiado = await copiarMinuta(html);
   const url = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(s.stakeholders.join(';'))}&subject=${encodeURIComponent(subject)}`;
   window.open(url, '_blank', 'noopener');
-  setStatus('status3', copiado
-    ? 'Minuta copiada al portapapeles. En la ventana de Outlook web, haz clic en el cuerpo del correo y pega con Ctrl+V.'
-    : 'Se abrió Outlook web con destinatarios y asunto. Usa "Descargar .eml" si necesitas el cuerpo con formato.');
+  let msg = copiado
+    ? 'Minuta copiada con formato. En Outlook web, clic en el cuerpo del correo y pega con Ctrl+V.'
+    : 'Se abrió Outlook web con destinatarios y asunto. Usa "Descargar .eml" si necesitas el cuerpo con formato.';
+  if (adjuntos.length) msg += ` Recuerda adjuntar a mano en Outlook web: ${adjuntos.map(a => a.name).join(', ')}.`;
+  setStatus('status3', msg);
   toast(copiado ? 'Minuta copiada — pega con Ctrl+V en Outlook web.' : 'Outlook web abierto.');
 });
 

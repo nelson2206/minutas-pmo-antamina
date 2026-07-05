@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
 <div class="grain"></div>
@@ -151,6 +151,16 @@
 
     <iframe id="previewFrame" title="Vista previa del correo"></iframe>
 
+    <div class="field" id="adjuntosField">
+      <label>Adjuntos (opcional) — Excel, PDF, etc.</label>
+      <div class="row" style="margin:0">
+        <button class="btn secondary" id="btnAddAdjunto">📎 Adjuntar archivo</button>
+        <input type="file" id="adjuntoFile" multiple style="display:none">
+      </div>
+      <div class="chips-static" id="adjuntosList"></div>
+      <span class="hint">Se incluyen en el <b>.eml</b> (Outlook escritorio). En Outlook web deberás adjuntarlos a mano tras pegar la minuta.</span>
+    </div>
+
     <div class="send-options">
       <div class="send-card">
         <div class="send-title">Outlook escritorio</div>
@@ -195,6 +205,6 @@
 <!-- Toasts -->
 <div class="toast-wrap" id="toastWrap"></div>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
