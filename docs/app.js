@@ -40,6 +40,17 @@ function migrar() {
   localStorage.setItem('scribe_schema', '2');
 }
 
+// Carga inicial: en una instalación nueva (sin datos) deja listos los tipos de reunión base
+function seedInicial() {
+  if (LS.projects().length) return;
+  const pid = genId();
+  LS.setProjects([{ id: pid, nombre: 'PMO Antamina' }]);
+  LS.setSeries([
+    { id: genId(), projectId: pid, nombre: 'Weekly', stakeholders: [] },
+    { id: genId(), projectId: pid, nombre: 'Comité de gestión de la OTA', stakeholders: [] },
+  ]);
+}
+
 let projects = [];
 let series = [];
 
@@ -761,6 +772,7 @@ $('importFile').addEventListener('change', e => {
 // ---------- Init ----------
 
 migrar();
+seedInicial();
 cargarProyectos();
 setStep(1);
 if (!LS.key()) { $('panelConfig').classList.remove('hidden'); refreshKeyStatus(); }
