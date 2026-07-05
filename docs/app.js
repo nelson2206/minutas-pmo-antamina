@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 const ESTADOS = ['Pendiente', 'Programado', 'En curso', 'Observado', 'Completado'];
 const GEMINI_MODEL = 'gemini-2.5-flash';
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ---------- Almacenamiento local (este navegador) ----------
 
@@ -14,6 +15,26 @@ const LS = {
 };
 
 let projects = [];
+
+// ---------- Toasts ----------
+
+function toast(msg, type = 'ok') {
+  const el = document.createElement('div');
+  el.className = 'toast' + (type === 'error' ? ' error' : '');
+  el.textContent = msg;
+  $('toastWrap').appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, 4200);
+}
+
+// ---------- Barra de pasos ----------
+
+function setStep(n) {
+  document.querySelectorAll('.step').forEach(s => {
+    const step = +s.dataset.step;
+    s.classList.toggle('is-active', step === n);
+    s.classList.toggle('is-done', step < n);
+  });
+}
 
 // ---------- Fechas (zona horaria de Lima) ----------
 
@@ -34,7 +55,6 @@ function fechaLarga(isoDate) {
   return d.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Lima' });
 }
 
-// Completados solo si se cerraron en la semana actual
 function visibleEnMinuta(a, lunesSemana) {
   if (a.estado !== 'Completado') return true;
   return Boolean(a.fecha_cierre && a.fecha_cierre >= lunesSemana);
@@ -57,7 +77,7 @@ $('btnConfig').addEventListener('click', () => {
 $('btnGuardarKey').addEventListener('click', () => {
   LS.setKey($('apiKey').value.trim());
   refreshKeyStatus();
-  if (LS.key()) $('panelConfig').classList.add('hidden');
+  if (LS.key()) { $('panelConfig').classList.add('hidden'); toast('API key guardada en este navegador.'); }
 });
 
 // ---------- Proyectos ----------
@@ -66,7 +86,7 @@ function cargarProyectos(selectedId) {
   projects = LS.projects();
   const sel = $('projectSelect');
   sel.innerHTML = projects.length
-    ? projects.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('')
+    ? projects.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')
     : '<option value="">— Crea un proyecto primero —</option>';
   if (selectedId) sel.value = selectedId;
   actualizarHint();
@@ -76,38 +96,107 @@ function proyectoActual() {
   return projects.find(p => p.id === $('projectSelect').value);
 }
 
+function chipHtml(correo, invalido) {
+  return `<span class="chip${invalido ? ' invalid' : ''}">${esc(correo)}</span>`;
+}
+
 function actualizarHint() {
   const p = proyectoActual();
-  $('stakeholdersHint').textContent = p
-    ? `Destinatarios: ${p.stakeholders.length ? p.stakeholders.join(', ') : '(sin correos configurados)'}`
-    : '';
+  const box = $('stakeholdersHint');
+  if (!p) { box.innerHTML = ''; return; }
+  if (!p.stakeholders.length) {
+    box.innerHTML = '<span class="lead">Para</span><span class="none">sin correos configurados — usa ✎ Destinatarios</span>';
+    return;
+  }
+  box.innerHTML = '<span class="lead">Para</span>' + p.stakeholders.map(c => chipHtml(c, !EMAIL_RE.test(c))).join('');
 }
 
 $('projectSelect').addEventListener('change', actualizarHint);
 
-$('btnNuevoProyecto').addEventListener('click', () => {
-  const nombre = prompt('Nombre del proyecto:');
-  if (!nombre) return;
-  const correos = prompt('Correos de los interesados (separados por coma o punto y coma):') || '';
-  const p = {
-    id: Math.random().toString(36).slice(2, 10),
-    nombre: nombre.trim(),
-    stakeholders: correos.split(/[,;]/).map(s => s.trim()).filter(Boolean),
-  };
-  const all = LS.projects(); all.push(p); LS.setProjects(all);
-  cargarProyectos(p.id);
-});
+// ---------- Modal de proyecto (crear / editar) con chips ----------
 
+let modalMode = 'new';      // 'new' | 'edit'
+let modalProjectId = null;
+let modalEmails = [];       // array de correos en edición
+
+function renderChips() {
+  $('chipsList').innerHTML = modalEmails.map((c, i) =>
+    `<span class="chip${EMAIL_RE.test(c) ? '' : ' invalid'}" data-i="${i}">${esc(c)} <span class="x" data-i="${i}">×</span></span>`
+  ).join('');
+}
+
+function addEmails(raw) {
+  raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean).forEach(correo => {
+    if (!modalEmails.includes(correo)) modalEmails.push(correo);
+  });
+  renderChips();
+}
+
+function abrirModal(mode, project) {
+  modalMode = mode;
+  modalProjectId = project ? project.id : null;
+  modalEmails = project ? [...project.stakeholders] : [];
+  $('modalTitle').textContent = mode === 'new' ? 'Nuevo proyecto' : `Destinatarios · ${project.nombre}`;
+  $('modalNombre').value = project ? project.nombre : '';
+  $('modalNombre').parentElement.style.display = mode === 'new' ? '' : 'none';
+  $('chipEntry').value = '';
+  renderChips();
+  $('projectModal').classList.remove('hidden');
+  setTimeout(() => (mode === 'new' ? $('modalNombre') : $('chipEntry')).focus(), 50);
+}
+
+function cerrarModal() { $('projectModal').classList.add('hidden'); }
+
+$('btnNuevoProyecto').addEventListener('click', () => abrirModal('new'));
 $('btnEditarProyecto').addEventListener('click', () => {
   const p = proyectoActual();
-  if (!p) return alert('Selecciona un proyecto primero.');
-  const correos = prompt(`Correos de los interesados de "${p.nombre}":`, p.stakeholders.join('; '));
-  if (correos === null) return;
+  if (!p) return toast('Crea un proyecto primero.', 'error');
+  abrirModal('edit', p);
+});
+
+$('chipEntry').addEventListener('keydown', e => {
+  if (['Enter', ',', ';', ' '].includes(e.key)) {
+    e.preventDefault();
+    if (e.target.value.trim()) { addEmails(e.target.value); e.target.value = ''; }
+  } else if (e.key === 'Backspace' && !e.target.value && modalEmails.length) {
+    modalEmails.pop(); renderChips();
+  }
+});
+$('chipEntry').addEventListener('blur', e => { if (e.target.value.trim()) { addEmails(e.target.value); e.target.value = ''; } });
+$('chipEntry').addEventListener('paste', e => {
+  e.preventDefault();
+  addEmails((e.clipboardData || window.clipboardData).getData('text'));
+});
+$('chipsInput').addEventListener('click', () => $('chipEntry').focus());
+$('chipsList').addEventListener('click', e => {
+  const x = e.target.closest('.x');
+  if (x) { modalEmails.splice(+x.dataset.i, 1); renderChips(); }
+});
+
+$('modalCancel').addEventListener('click', cerrarModal);
+$('projectModal').addEventListener('click', e => { if (e.target.id === 'projectModal') cerrarModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarModal(); });
+
+$('modalSave').addEventListener('click', () => {
+  if ($('chipEntry').value.trim()) { addEmails($('chipEntry').value); $('chipEntry').value = ''; }
+  const invalidos = modalEmails.filter(c => !EMAIL_RE.test(c));
+  if (invalidos.length && !confirm(`Hay correos con formato inválido:\n${invalidos.join('\n')}\n\n¿Guardar de todas formas?`)) return;
+
   const all = LS.projects();
-  const target = all.find(x => x.id === p.id);
-  target.stakeholders = correos.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-  LS.setProjects(all);
-  cargarProyectos(p.id);
+  if (modalMode === 'new') {
+    const nombre = $('modalNombre').value.trim();
+    if (!nombre) return toast('Escribe el nombre del proyecto.', 'error');
+    const p = { id: Math.random().toString(36).slice(2, 10), nombre, stakeholders: modalEmails };
+    all.push(p); LS.setProjects(all);
+    cerrarModal(); cargarProyectos(p.id);
+    toast('Proyecto creado.');
+  } else {
+    const target = all.find(x => x.id === modalProjectId);
+    target.stakeholders = modalEmails;
+    LS.setProjects(all);
+    cerrarModal(); cargarProyectos(modalProjectId);
+    toast('Destinatarios actualizados.');
+  }
 });
 
 // ---------- Generación con Gemini ----------
@@ -184,6 +273,10 @@ async function callGemini(system, userMessage) {
   return minuta;
 }
 
+$('transcript').addEventListener('input', e => {
+  $('transcriptCounter').textContent = `${e.target.value.length.toLocaleString('es-PE')} caracteres`;
+});
+
 $('btnGenerar').addEventListener('click', async () => {
   const p = proyectoActual();
   if (!p) return setStatus('status', 'Selecciona o crea un proyecto.', true);
@@ -206,19 +299,23 @@ ${JSON.stringify(historicosAbiertos.map(({ id, accion, responsable, estado, fech
 TRANSCRIPCIÓN DE LA REUNIÓN:
 ${transcript}`;
 
-  $('btnGenerar').disabled = true;
-  setStatus('status', 'Scribe está redactando la minuta... (puede tomar un momento)');
+  const btn = $('btnGenerar');
+  btn.classList.add('loading');
+  setStatus('status', 'Scribe está redactando la minuta...');
   try {
     const minuta = await callGemini(system, userMessage);
     minuta.acuerdos = minuta.acuerdos.filter(a => visibleEnMinuta(a, lunesSemana));
     pintarMinuta(minuta);
-    setStatus('status', 'Minuta generada. Revisa y ajusta en el paso 2.');
+    setStatus('status', '');
+    toast(`Minuta generada: ${minuta.acuerdos.length} acuerdo(s).`);
     $('paso2').classList.remove('hidden');
+    setStep(2);
     $('paso2').scrollIntoView({ behavior: 'smooth' });
   } catch (e) {
     setStatus('status', e.message, true);
+    toast(e.message, 'error');
   } finally {
-    $('btnGenerar').disabled = false;
+    btn.classList.remove('loading');
   }
 });
 
@@ -248,15 +345,13 @@ function crearFila(a = {}) {
   if (a.critico) tr.classList.add('critico');
   tr.innerHTML = `
     <td class="num"></td>
-    <td><textarea class="f-accion">${a.accion || ''}</textarea></td>
-    <td><input class="f-responsable" value="${(a.responsable || '').replace(/"/g, '&quot;')}"></td>
+    <td><textarea class="f-accion">${esc(a.accion || '')}</textarea></td>
+    <td><input class="f-responsable" value="${esc(a.responsable || '')}"></td>
     <td><select class="f-estado">${ESTADOS.map(e => `<option ${e === a.estado ? 'selected' : ''}>${e}</option>`).join('')}</select></td>
-    <td><input class="f-fecha" value="${a.fecha_comprometida || 'Por definir'}"></td>
+    <td><input class="f-fecha" value="${esc(a.fecha_comprometida || 'Por definir')}"></td>
     <td class="center"><input type="checkbox" class="f-critico" ${a.critico ? 'checked' : ''}></td>
     <td class="center"><button class="btn-del" title="Eliminar">✕</button></td>`;
-  tr.querySelector('.f-critico').addEventListener('change', e => {
-    tr.classList.toggle('critico', e.target.checked);
-  });
+  tr.querySelector('.f-critico').addEventListener('change', e => tr.classList.toggle('critico', e.target.checked));
   tr.querySelector('.btn-del').addEventListener('click', () => { tr.remove(); renumerar(); });
   return tr;
 }
@@ -316,13 +411,18 @@ function guardar() {
 
 $('btnGuardar').addEventListener('click', () => {
   guardar();
-  setStatus('status2', 'Seguimiento guardado. Los acuerdos abiertos se cruzarán con la próxima minuta.');
+  toast('Seguimiento guardado. Se cruzará con la próxima minuta.');
 });
 
-// ---------- Render de correo y .eml ----------
+// ---------- Render del correo ----------
 
 function esc(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function subjectFor(m, projectName) {
+  const [y, mo, d] = (m.fecha_reunion || hoyISO()).split('-');
+  return `Minuta de seguimiento – ${projectName} – ${d}/${mo}/${y}`;
 }
 
 function renderMinutaHtml(minuta, projectName) {
@@ -368,10 +468,18 @@ function renderMinutaHtml(minuta, projectName) {
 $('btnPreview').addEventListener('click', () => {
   const p = proyectoActual();
   const m = leerMinuta();
-  $('paso3').classList.remove('hidden');
+  if (!m.acuerdos.length) return toast('No hay acuerdos para incluir en la minuta.', 'error');
+  $('previewRecipients').innerHTML = p.stakeholders.length
+    ? p.stakeholders.map(c => chipHtml(c, !EMAIL_RE.test(c))).join('')
+    : '<span class="none">Sin destinatarios — configúralos con ✎ Destinatarios</span>';
+  $('previewSubject').textContent = subjectFor(m, p.nombre);
   $('previewFrame').srcdoc = renderMinutaHtml(m, p.nombre);
+  $('paso3').classList.remove('hidden');
+  setStep(3);
   $('paso3').scrollIntoView({ behavior: 'smooth' });
 });
+
+// ---------- Envío ----------
 
 function b64utf8(str) {
   const bytes = new TextEncoder().encode(str);
@@ -380,17 +488,22 @@ function b64utf8(str) {
   return btoa(bin);
 }
 
+function htmlToText(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.innerText.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 $('btnEml').addEventListener('click', () => {
   const p = proyectoActual();
   if (!p) return;
   if (!p.stakeholders.length && !confirm('Este proyecto no tiene correos configurados. ¿Descargar el .eml sin destinatarios?')) return;
   const m = guardar();
   const html = renderMinutaHtml(m, p.nombre);
-  const [y, mo, d] = m.fecha_reunion.split('-');
-  const subject = `Minuta de seguimiento – ${p.nombre} – ${d}/${mo}/${y}`;
+  const subject = subjectFor(m, p.nombre);
   const body = `<html><body>${html}</body></html>`;
 
-  // X-Unsent: 1 hace que Outlook lo abra como borrador listo para enviar
+  // X-Unsent: 1 hace que Outlook (escritorio) lo abra como borrador listo para enviar
   const eml = [
     `To: ${p.stakeholders.join('; ')}`,
     `Subject: =?utf-8?B?${b64utf8(subject)}?=`,
@@ -402,15 +515,46 @@ $('btnEml').addEventListener('click', () => {
     b64utf8(body).replace(/(.{76})/g, '$1\r\n'),
   ].join('\r\n');
 
+  const [y, mo, d] = m.fecha_reunion.split('-');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([eml], { type: 'message/rfc822' }));
   a.download = `Minuta ${p.nombre} ${d}-${mo}-${y}.eml`;
   a.click();
   URL.revokeObjectURL(a.href);
-  setStatus('status2', 'Seguimiento guardado y .eml descargado. Ábrelo con Outlook: saldrá como borrador listo para enviar.');
+  setStatus('status3', 'Seguimiento guardado y .eml descargado. Ábrelo con Outlook: saldrá como borrador listo para enviar.');
+  toast('.eml descargado.');
+});
+
+$('btnOutlookWeb').addEventListener('click', async () => {
+  const p = proyectoActual();
+  if (!p) return;
+  const m = guardar();
+  const html = renderMinutaHtml(m, p.nombre);
+  const subject = subjectFor(m, p.nombre);
+
+  let copiado = false;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([htmlToText(html)], { type: 'text/plain' }),
+    })]);
+    copiado = true;
+  } catch {
+    try { await navigator.clipboard.writeText(htmlToText(html)); copiado = true; } catch { /* sin permiso de portapapeles */ }
+  }
+
+  const to = p.stakeholders.join(';');
+  const url = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(subject)}`;
+  window.open(url, '_blank', 'noopener');
+
+  setStatus('status3', copiado
+    ? 'Minuta copiada al portapapeles. En la ventana de Outlook web, haz clic en el cuerpo del correo y pega con Ctrl+V.'
+    : 'Se abrió Outlook web con destinatarios y asunto. Vuelve a Scribe y usa "Descargar .eml" si necesitas el cuerpo con formato.');
+  toast(copiado ? 'Minuta copiada — pega con Ctrl+V en Outlook web.' : 'Outlook web abierto.');
 });
 
 // ---------- Init ----------
 
 cargarProyectos();
+setStep(1);
 if (!LS.key()) { $('panelConfig').classList.remove('hidden'); refreshKeyStatus(); }

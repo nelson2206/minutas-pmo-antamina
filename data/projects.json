@@ -2,6 +2,9 @@
   {
     "id": "demo0001",
     "nombre": "Proyecto Demo",
-    "stakeholders": ["interesado1@antamina.com", "interesado2@minsait.com"]
+    "stakeholders": [
+      "interesado1@antamina.com",
+      "interesado2@minsait.com"
+    ]
   }
 ]

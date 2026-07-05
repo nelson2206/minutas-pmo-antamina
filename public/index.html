@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 <div class="grain"></div>
@@ -18,6 +18,12 @@
   <h1><span class="scribe">Scribe</span> · Generador de Minutas</h1>
   <p class="sub">El Escriba — asiste a cada reunión, redacta la minuta y no olvida ningún compromiso.</p>
 </header>
+
+<nav class="steps" id="steps">
+  <span class="step is-active" data-step="1"><i>1</i> Transcripción</span>
+  <span class="step" data-step="2"><i>2</i> Revisar</span>
+  <span class="step" data-step="3"><i>3</i> Enviar</span>
+</nav>
 
 <main>
   <section class="card" id="paso1">
@@ -28,15 +34,16 @@
         <select id="projectSelect"></select>
       </div>
       <button class="btn secondary" id="btnNuevoProyecto">+ Nuevo proyecto</button>
-      <button class="btn secondary" id="btnEditarProyecto">Editar destinatarios</button>
+      <button class="btn secondary" id="btnEditarProyecto">✎ Destinatarios</button>
     </div>
-    <p class="hint" id="stakeholdersHint"></p>
+    <div class="recipients-hint" id="stakeholdersHint"></div>
     <div class="field">
       <label for="transcript">Transcripción de la reunión de Teams</label>
       <textarea id="transcript" rows="12" placeholder="Pega aquí la transcripción completa de la llamada de Teams..."></textarea>
+      <span class="counter" id="transcriptCounter">0 caracteres</span>
     </div>
     <div class="row">
-      <button class="btn primary" id="btnGenerar">Generar minuta</button>
+      <button class="btn primary" id="btnGenerar"><span class="btn-label">Generar minuta</span></button>
       <span id="status" class="status"></span>
     </div>
   </section>
@@ -58,39 +65,90 @@
       </div>
     </div>
 
-    <table id="tablaAcuerdos">
-      <thead>
-        <tr>
-          <th>N°</th>
-          <th>Acción / Compromiso</th>
-          <th>Responsable</th>
-          <th>Estado</th>
-          <th>Fecha comprometida</th>
-          <th>Crítico</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div class="table-wrap">
+      <table id="tablaAcuerdos">
+        <thead>
+          <tr>
+            <th>N°</th>
+            <th>Acción / Compromiso</th>
+            <th>Responsable</th>
+            <th>Estado</th>
+            <th>Fecha comprometida</th>
+            <th>Crítico</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
     <button class="btn secondary" id="btnAgregarFila">+ Agregar acuerdo</button>
 
     <div class="row actions">
-      <button class="btn secondary" id="btnPreview">Vista previa del correo</button>
+      <button class="btn primary" id="btnPreview">Vista previa y envío →</button>
       <button class="btn secondary" id="btnGuardar">Guardar seguimiento</button>
-      <button class="btn primary" id="btnEml">Guardar y descargar correo (.eml)</button>
       <span id="status2" class="status"></span>
     </div>
   </section>
 
   <section class="card hidden" id="paso3">
-    <h2>3 · Vista previa del correo</h2>
-    <p class="hint">Así se verá el correo en Outlook. El .eml se abre como borrador con los destinatarios del proyecto ya cargados.</p>
-    <iframe id="previewFrame"></iframe>
+    <h2>3 · Vista previa y envío</h2>
+
+    <div class="mail-head">
+      <div class="mail-field">
+        <span class="mail-label">Para</span>
+        <div class="chips-static" id="previewRecipients"></div>
+      </div>
+      <div class="mail-field">
+        <span class="mail-label">Asunto</span>
+        <span class="mail-subject" id="previewSubject"></span>
+      </div>
+    </div>
+
+    <iframe id="previewFrame" title="Vista previa del correo"></iframe>
+
+    <div class="send-options">
+      <div class="send-card">
+        <div class="send-title">Outlook escritorio</div>
+        <p class="send-desc">Descarga un archivo <b>.eml</b> que se abre como borrador listo para enviar.</p>
+        <button class="btn primary" id="btnEml">Descargar .eml</button>
+      </div>
+      <div class="send-card">
+        <div class="send-title">Outlook web (online)</div>
+        <p class="send-desc">Copia la minuta y abre un correo nuevo ya direccionado. Solo pega con <b>Ctrl+V</b> en el cuerpo.</p>
+        <button class="btn primary" id="btnOutlookWeb">Abrir en Outlook web</button>
+      </div>
+    </div>
+    <p class="hint" id="status3"></p>
   </section>
 </main>
 
 <footer>Scribe · El Escriba <span class="sep">·</span> COE IA MBC · Minsait Business Consulting</footer>
 
-<script src="app.js"></script>
+<!-- Modal de proyecto -->
+<div class="modal-overlay hidden" id="projectModal">
+  <div class="modal">
+    <h3 id="modalTitle">Nuevo proyecto</h3>
+    <div class="field">
+      <label for="modalNombre">Nombre del proyecto</label>
+      <input type="text" id="modalNombre" placeholder="Ej: Despliegue Bitlocker">
+    </div>
+    <div class="field">
+      <label>Correos de los interesados</label>
+      <div class="chips-input" id="chipsInput">
+        <span class="chips-list" id="chipsList"></span>
+        <input type="text" id="chipEntry" placeholder="correo@empresa.com" autocomplete="off">
+      </div>
+      <span class="hint">Escribe un correo y pulsa <b>Enter</b>, <b>coma</b> o <b>espacio</b> para añadirlo. También puedes pegar varios de una vez.</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modalCancel">Cancelar</button>
+      <button class="btn primary" id="modalSave">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="app.js?v=2"></script>
 </body>
 </html>

@@ -51,7 +51,32 @@ header h1 .scribe { color: var(--scribe); text-shadow: 0 0 34px rgba(255,157,92,
 header .sub { font-size: clamp(0.9rem, 1.6vw, 1.05rem); color: var(--text-soft); font-weight: 500; max-width: 560px; margin: 0 auto; }
 #btnConfig { position: absolute; top: 20px; right: 20px; }
 
-main { position: relative; z-index: 2; max-width: 1100px; margin: 28px auto; padding: 0 18px; display: flex; flex-direction: column; gap: 22px; }
+/* ════════ Barra de pasos ════════ */
+.steps {
+  position: relative; z-index: 2;
+  display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
+  max-width: 700px; margin: 24px auto 4px; padding: 0 18px;
+}
+.step {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-size: 0.74rem; font-weight: 700; color: var(--text-soft);
+  padding: 8px 16px; border-radius: 9999px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--glass-brd);
+  transition: color 0.3s var(--ease-out), border-color 0.3s var(--ease-out), background 0.3s var(--ease-out);
+}
+.step i {
+  display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  font-size: 0.7rem; font-weight: 800; font-style: normal;
+  background: rgba(255,255,255,0.08); color: var(--text-soft);
+}
+.step.is-active { color: var(--text); border-color: rgba(255,157,92,0.5); background: rgba(255,157,92,0.08); }
+.step.is-active i { background: linear-gradient(135deg, var(--scribe), var(--rose)); color: #fff; }
+.step.is-done i { background: rgba(255,157,92,0.85); color: #23120a; }
+.step.is-done i::after { content: "✓"; }
+.step.is-done i { font-size: 0; }
+.step.is-done i::after { font-size: 0.72rem; }
+
+main { position: relative; z-index: 2; max-width: 1100px; margin: 20px auto 28px; padding: 0 18px; display: flex; flex-direction: column; gap: 22px; }
 
 /* ════════ Tarjetas glass ════════ */
 .card {
@@ -127,11 +152,109 @@ input[type="checkbox"] { width: auto; accent-color: var(--scribe); }
 .btn.ghost:hover { background: rgba(255,255,255,0.12); }
 
 .hint { font-size: 0.8rem; color: var(--text-soft); margin-bottom: 10px; line-height: 1.55; }
-.hint a { color: var(--scribe); }
+.hint a, .hint b { color: var(--scribe); }
+.hint b { font-weight: 700; }
 .status { font-size: 0.84rem; color: var(--scribe-soft); font-weight: 600; }
 .status.error { color: #ff5c6a; }
+.counter { font-size: 0.7rem; color: var(--text-soft); align-self: flex-end; margin-top: 2px; }
 
-.hidden { display: none; }
+.hidden { display: none !important; }
+
+/* ════════ Spinner del botón ════════ */
+.btn.loading { position: relative; color: transparent !important; pointer-events: none; }
+.btn.loading::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ════════ Chips de correos ════════ */
+.recipients-hint { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 12px; min-height: 22px; }
+.recipients-hint .none { font-size: 0.78rem; color: var(--text-soft); font-style: italic; }
+.recipients-hint .lead { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-soft); margin-right: 2px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.78rem; font-weight: 600; color: var(--scribe-soft);
+  background: rgba(255,157,92,0.12); border: 1px solid rgba(255,157,92,0.32);
+  padding: 4px 10px; border-radius: 9999px; white-space: nowrap;
+}
+.chip.invalid { color: #ff8f9a; background: rgba(255,60,90,0.12); border-color: rgba(255,60,90,0.4); }
+.chip .x { cursor: pointer; opacity: 0.6; font-weight: 800; line-height: 1; }
+.chip .x:hover { opacity: 1; }
+
+.chips-static .chip { background: rgba(255,157,92,0.14); }
+
+.chips-input {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  border: 1px solid var(--glass-brd); border-radius: 12px; padding: 8px 10px;
+  background: var(--field); cursor: text; min-height: 46px;
+  transition: border-color 0.3s var(--ease-out), box-shadow 0.3s var(--ease-out);
+}
+.chips-input:focus-within { border-color: var(--scribe); box-shadow: 0 0 0 3px rgba(255,157,92,0.18); }
+.chips-list { display: contents; }
+.chips-input input { border: none; background: transparent; flex: 1; min-width: 140px; padding: 4px; box-shadow: none !important; }
+.chips-input input:focus { outline: none; }
+
+/* ════════ Modal ════════ */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px;
+  background: rgba(6,2,10,0.72); backdrop-filter: blur(6px);
+  animation: fadeIn 0.2s var(--ease-out);
+}
+.modal {
+  width: 100%; max-width: 480px;
+  background: linear-gradient(180deg, #1c1030, #150a24);
+  border: 1px solid var(--glass-brd); border-radius: 22px; padding: 28px;
+  box-shadow: 0 30px 80px -30px rgba(0,0,0,0.8);
+  animation: popIn 0.24s var(--ease-out);
+}
+.modal h3 { font-size: 1.1rem; font-weight: 800; margin-bottom: 18px; color: var(--text); }
+.modal .field { margin-bottom: 16px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn { from { opacity: 0; transform: translateY(14px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* ════════ Encabezado del correo (paso 3) ════════ */
+.mail-head {
+  border: 1px solid var(--glass-brd); border-radius: 14px; padding: 14px 16px;
+  background: rgba(255,255,255,0.03); margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.mail-field { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.mail-label { font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-soft); min-width: 52px; }
+.chips-static { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.mail-subject { font-size: 0.9rem; font-weight: 600; color: var(--text); flex: 1; }
+
+/* ════════ Opciones de envío ════════ */
+.send-options { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+.send-card {
+  border: 1px solid var(--glass-brd); border-radius: 16px; padding: 18px 18px 20px;
+  background: rgba(255,255,255,0.025); display: flex; flex-direction: column; gap: 8px;
+}
+.send-title { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; color: var(--scribe); }
+.send-desc { font-size: 0.82rem; color: var(--text-soft); line-height: 1.5; flex: 1; }
+.send-desc b { color: var(--text); font-weight: 700; }
+.send-card .btn { align-self: flex-start; margin-top: 4px; }
+
+.table-wrap { overflow-x: auto; }
+
+/* ════════ Toasts ════════ */
+.toast-wrap { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 10px; align-items: center; pointer-events: none; }
+.toast {
+  pointer-events: auto; max-width: 92vw;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 0.85rem; font-weight: 600; color: var(--text);
+  background: linear-gradient(180deg, #241534, #1a0d2c);
+  border: 1px solid var(--glass-brd); border-left: 3px solid var(--scribe);
+  border-radius: 12px; padding: 12px 18px;
+  box-shadow: 0 18px 44px -18px rgba(0,0,0,0.8);
+  animation: toastIn 0.3s var(--ease-out);
+}
+.toast.error { border-left-color: #ff5c6a; }
+.toast.out { animation: toastOut 0.3s var(--ease-out) forwards; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes toastOut { to { opacity: 0; transform: translateY(16px); } }
 
 /* ════════ Tabla de acuerdos ════════ */
 table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.85rem; }
@@ -162,4 +285,6 @@ footer .sep { margin: 0 8px; opacity: 0.4; }
 @media (max-width: 600px) {
   header { padding-top: 72px; }
   .card { padding: 20px 18px; border-radius: 20px; }
+  .send-options { grid-template-columns: 1fr; }
+  .step { font-size: 0.68rem; padding: 7px 12px; }
 }
