@@ -76,7 +76,7 @@ $('btnGenerar').addEventListener('click', async () => {
     if (!r.ok) throw new Error(data.error);
     minutaActual = data.minuta;
     pintarMinuta(data.minuta);
-    setStatus('status', 'Minuta generada. Revisa y ajusta en el paso 2.');
+    setStatus('status', `Minuta generada con ${data.engine || 'IA'}. Revisa y ajusta en el paso 2.`);
     $('paso2').classList.remove('hidden');
     $('paso2').scrollIntoView({ behavior: 'smooth' });
   } catch (e) {

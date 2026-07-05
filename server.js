@@ -15,6 +15,11 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || 'falta-configurar-api-key',
 });
 
+// Proveedor de IA: "claude" o "gemini". Si no se define, se elige según las keys disponibles.
+const PROVIDER = (process.env.PROVIDER
+  || (process.env.ANTHROPIC_API_KEY ? 'claude' : (process.env.GEMINI_API_KEY ? 'gemini' : 'claude'))).toLowerCase();
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -154,6 +159,83 @@ Instrucciones:
 - No inventes acuerdos, responsables ni fechas que no tengan sustento en la transcripción o en los históricos.`;
 }
 
+// Mismo esquema que MINUTA_SCHEMA pero en el formato OpenAPI que exige Gemini (nullable en vez de type array)
+const GEMINI_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    fecha_reunion: { type: 'STRING' },
+    participantes: { type: 'ARRAY', items: { type: 'STRING' } },
+    proxima_reunion: { type: 'STRING', nullable: true },
+    acuerdos: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          id: { type: 'STRING', nullable: true },
+          accion: { type: 'STRING' },
+          responsable: { type: 'STRING' },
+          estado: { type: 'STRING', enum: ['Pendiente', 'Programado', 'En curso', 'Observado', 'Completado'] },
+          fecha_comprometida: { type: 'STRING' },
+          critico: { type: 'BOOLEAN' },
+          fecha_cierre: { type: 'STRING', nullable: true },
+        },
+        required: ['accion', 'responsable', 'estado', 'fecha_comprometida', 'critico'],
+      },
+    },
+  },
+  required: ['fecha_reunion', 'participantes', 'acuerdos'],
+};
+
+async function callClaude(system, userMessage) {
+  const response = await anthropic.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 16000,
+    thinking: { type: 'adaptive' },
+    system,
+    output_config: { format: { type: 'json_schema', schema: MINUTA_SCHEMA } },
+    messages: [{ role: 'user', content: userMessage }],
+  });
+  if (response.stop_reason === 'refusal') {
+    throw Object.assign(new Error('El modelo declinó procesar esta transcripción.'), { status: 422 });
+  }
+  return JSON.parse(response.content.find(b => b.type === 'text').text);
+}
+
+async function callGemini(system, userMessage) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY || '' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: GEMINI_SCHEMA,
+        temperature: 0.2,
+      },
+    }),
+  });
+  if (!r.ok) {
+    const body = await r.text();
+    const err = new Error(`Gemini ${r.status}: ${body.slice(0, 300)}`);
+    err.status = r.status;
+    throw err;
+  }
+  const data = await r.json();
+  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+  if (!text) throw new Error(`Gemini no devolvió contenido (finishReason: ${data.candidates?.[0]?.finishReason || 'desconocido'})`);
+  const minuta = JSON.parse(text);
+  // Normalizar campos que el esquema de Gemini no puede exigir
+  minuta.proxima_reunion = minuta.proxima_reunion || null;
+  minuta.acuerdos = (minuta.acuerdos || []).map(a => ({
+    ...a,
+    id: a.id || null,
+    fecha_cierre: a.fecha_cierre || null,
+  }));
+  return minuta;
+}
+
 app.post('/api/generate', async (req, res) => {
   const { projectId, transcript } = req.body;
   if (!transcript || !transcript.trim()) return res.status(400).json({ error: 'La transcripción está vacía' });
@@ -164,39 +246,27 @@ app.post('/api/generate', async (req, res) => {
   const lunesSemana = lunesDeLaSemana(hoy);
   const historicosAbiertos = getAcuerdos(projectId).filter(a => a.estado !== 'Completado');
 
-  try {
-    const response = await anthropic.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 16000,
-      thinking: { type: 'adaptive' },
-      system: buildSystemPrompt(project.nombre, hoy, lunesSemana),
-      output_config: { format: { type: 'json_schema', schema: MINUTA_SCHEMA } },
-      messages: [{
-        role: 'user',
-        content:
+  const system = buildSystemPrompt(project.nombre, hoy, lunesSemana);
+  const userMessage =
 `ACUERDOS HISTÓRICOS ABIERTOS DEL PROYECTO (JSON):
 ${JSON.stringify(historicosAbiertos.map(({ id, accion, responsable, estado, fecha_comprometida, critico }) => ({ id, accion, responsable, estado, fecha_comprometida, critico })), null, 2)}
 
 TRANSCRIPCIÓN DE LA REUNIÓN:
-${transcript}`
-      }]
-    });
+${transcript}`;
 
-    if (response.stop_reason === 'refusal') {
-      return res.status(422).json({ error: 'El modelo declinó procesar esta transcripción. Revisa el contenido e inténtalo de nuevo.' });
-    }
-
-    const textBlock = response.content.find(b => b.type === 'text');
-    const minuta = JSON.parse(textBlock.text);
+  try {
+    const minuta = PROVIDER === 'gemini'
+      ? await callGemini(system, userMessage)
+      : await callClaude(system, userMessage);
     minuta.lunes_semana = lunesSemana;
     minuta.acuerdos = minuta.acuerdos.filter(a => visibleEnMinuta(a, lunesSemana));
-    res.json({ minuta, project });
+    res.json({ minuta, project, engine: PROVIDER === 'gemini' ? `Gemini (${GEMINI_MODEL})` : 'Claude (claude-opus-4-8)' });
   } catch (err) {
     console.error(err);
-    const msg = err.status === 401
+    const msg = err.status === 401 || err.status === 403
       ? 'API key inválida o no configurada. Revisa el archivo .env.'
       : `Error al generar la minuta: ${err.message}`;
-    res.status(500).json({ error: msg });
+    res.status(err.status === 422 ? 422 : 500).json({ error: msg });
   }
 });
 

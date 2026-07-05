@@ -4,7 +4,7 @@ Herramienta web para el equipo PMO de Antamina (Minsait): pega la transcripción
 
 ## Qué hace
 
-1. **Genera la minuta con IA** (Claude Opus 4.8) a partir de la transcripción: fecha, participantes, próxima reunión y tabla de acuerdos (N°, Acción/Compromiso, Responsable, Estado, Fecha comprometida).
+1. **Genera la minuta con IA** a partir de la transcripción: fecha, participantes, próxima reunión y tabla de acuerdos (N°, Acción/Compromiso, Responsable, Estado, Fecha comprometida). Soporta dos proveedores, configurables en `.env`: **Claude** (claude-opus-4-8) o **Gemini** (gemini-2.5-flash por defecto).
 2. **Seguimiento de acuerdos por proyecto**: los acuerdos abiertos se guardan y se cruzan automáticamente con la siguiente minuta (actualiza estados, detecta cierres, agrega nuevos).
 3. **Reglas de la minuta**: muestra pendientes/programados/en curso/observados; completados solo si se cerraron en la semana actual; texto rojo solo para acuerdos críticos; "Por definir" cuando falta fecha; cierre formal fijo.
 4. **Correo a interesados**: descarga un `.eml` que Outlook abre como borrador con los destinatarios del proyecto ya cargados.
@@ -13,7 +13,7 @@ Herramienta web para el equipo PMO de Antamina (Minsait): pega la transcripción
 
 ```bash
 npm install
-copy .env.example .env   # y pega tu ANTHROPIC_API_KEY
+copy .env.example .env   # elige PROVIDER y pega tu API key (Anthropic o Gemini)
 npm start
 ```
 
