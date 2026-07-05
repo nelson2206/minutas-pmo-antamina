@@ -2,19 +2,46 @@ const $ = id => document.getElementById(id);
 const ESTADOS = ['Pendiente', 'Programado', 'En curso', 'Observado', 'Completado'];
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const genId = () => Math.random().toString(36).slice(2, 10);
 
 // ---------- Almacenamiento local (este navegador) ----------
+// Modelo: proyecto -> tipo de reunión (serie) -> acuerdos (seguimiento) + minutas (archivo)
 
 const LS = {
   key: () => localStorage.getItem('scribe_gemini_key') || '',
   setKey: v => localStorage.setItem('scribe_gemini_key', v),
   projects: () => JSON.parse(localStorage.getItem('scribe_projects') || '[]'),
   setProjects: p => localStorage.setItem('scribe_projects', JSON.stringify(p)),
-  acuerdos: id => JSON.parse(localStorage.getItem('scribe_acuerdos_' + id) || '[]'),
-  setAcuerdos: (id, a) => localStorage.setItem('scribe_acuerdos_' + id, JSON.stringify(a)),
+  series: () => JSON.parse(localStorage.getItem('scribe_series') || '[]'),
+  setSeries: s => localStorage.setItem('scribe_series', JSON.stringify(s)),
+  acuerdos: sid => JSON.parse(localStorage.getItem('scribe_acuerdos_' + sid) || '[]'),
+  setAcuerdos: (sid, a) => localStorage.setItem('scribe_acuerdos_' + sid, JSON.stringify(a)),
+  minutas: sid => JSON.parse(localStorage.getItem('scribe_minutas_' + sid) || '[]'),
+  setMinutas: (sid, m) => localStorage.setItem('scribe_minutas_' + sid, JSON.stringify(m)),
 };
 
+// Migración v1 (proyecto con stakeholders + acuerdos por proyecto) -> v2 (con series)
+function migrar() {
+  if (localStorage.getItem('scribe_schema') === '2') return;
+  const viejos = LS.projects();
+  if (viejos.length && viejos[0].stakeholders !== undefined) {
+    const nuevosProj = [];
+    const series = [];
+    viejos.forEach(op => {
+      nuevosProj.push({ id: op.id, nombre: op.nombre });
+      const sid = genId();
+      series.push({ id: sid, projectId: op.id, nombre: 'General', stakeholders: op.stakeholders || [] });
+      const ac = localStorage.getItem('scribe_acuerdos_' + op.id);
+      if (ac) { localStorage.setItem('scribe_acuerdos_' + sid, ac); localStorage.removeItem('scribe_acuerdos_' + op.id); }
+    });
+    LS.setProjects(nuevosProj);
+    LS.setSeries(series);
+  }
+  localStorage.setItem('scribe_schema', '2');
+}
+
 let projects = [];
+let series = [];
 
 // ---------- Toasts ----------
 
@@ -60,12 +87,14 @@ function visibleEnMinuta(a, lunesSemana) {
   return Boolean(a.fecha_cierre && a.fecha_cierre >= lunesSemana);
 }
 
+function esc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // ---------- Configuración de API key ----------
 
 function refreshKeyStatus() {
-  $('keyStatus').textContent = LS.key()
-    ? 'API key configurada en este navegador.'
-    : 'Aún no hay API key configurada.';
+  $('keyStatus').textContent = LS.key() ? 'API key configurada en este navegador.' : 'Aún no hay API key configurada.';
 }
 
 $('btnConfig').addEventListener('click', () => {
@@ -80,44 +109,60 @@ $('btnGuardarKey').addEventListener('click', () => {
   if (LS.key()) { $('panelConfig').classList.add('hidden'); toast('API key guardada en este navegador.'); }
 });
 
-// ---------- Proyectos ----------
+// ---------- Proyectos y series ----------
 
-function cargarProyectos(selectedId) {
+function cargarProyectos(selPid) {
   projects = LS.projects();
+  series = LS.series();
   const sel = $('projectSelect');
   sel.innerHTML = projects.length
     ? projects.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')
-    : '<option value="">— Crea un proyecto primero —</option>';
-  if (selectedId) sel.value = selectedId;
-  actualizarHint();
+    : '<option value="">— Crea un proyecto —</option>';
+  if (selPid) sel.value = selPid;
+  cargarSeries();
 }
 
-function proyectoActual() {
-  return projects.find(p => p.id === $('projectSelect').value);
+function seriesDeProyecto(pid) {
+  return series.filter(s => s.projectId === pid);
 }
+
+function cargarSeries(selSid) {
+  const pid = $('projectSelect').value;
+  const lista = seriesDeProyecto(pid);
+  const sel = $('seriesSelect');
+  sel.innerHTML = lista.length
+    ? lista.map(s => `<option value="${s.id}">${esc(s.nombre)}</option>`).join('')
+    : '<option value="">— Crea un tipo de reunión —</option>';
+  if (selSid) sel.value = selSid;
+  actualizarHint();
+  if (!$('panelHistorial').classList.contains('hidden')) renderHistorial();
+}
+
+function proyectoActual() { return projects.find(p => p.id === $('projectSelect').value); }
+function serieActual() { return series.find(s => s.id === $('seriesSelect').value); }
+
+$('projectSelect').addEventListener('change', () => cargarSeries());
+$('seriesSelect').addEventListener('change', () => { actualizarHint(); if (!$('panelHistorial').classList.contains('hidden')) renderHistorial(); });
 
 function chipHtml(correo, invalido) {
   return `<span class="chip${invalido ? ' invalid' : ''}">${esc(correo)}</span>`;
 }
 
 function actualizarHint() {
-  const p = proyectoActual();
+  const s = serieActual();
   const box = $('stakeholdersHint');
-  if (!p) { box.innerHTML = ''; return; }
-  if (!p.stakeholders.length) {
-    box.innerHTML = '<span class="lead">Para</span><span class="none">sin correos configurados — usa ✎ Destinatarios</span>';
+  if (!s) { box.innerHTML = ''; return; }
+  if (!s.stakeholders.length) {
+    box.innerHTML = '<span class="lead">Para</span><span class="none">sin correos configurados — usa ✎ Editar</span>';
     return;
   }
-  box.innerHTML = '<span class="lead">Para</span>' + p.stakeholders.map(c => chipHtml(c, !EMAIL_RE.test(c))).join('');
+  box.innerHTML = '<span class="lead">Para</span>' + s.stakeholders.map(c => chipHtml(c, !EMAIL_RE.test(c))).join('');
 }
 
-$('projectSelect').addEventListener('change', actualizarHint);
+// ---------- Modal genérico (proyecto / serie) ----------
 
-// ---------- Modal de proyecto (crear / editar) con chips ----------
-
-let modalMode = 'new';      // 'new' | 'edit'
-let modalProjectId = null;
-let modalEmails = [];       // array de correos en edición
+let modalCfg = null;
+let modalEmails = [];
 
 function renderChips() {
   $('chipsList').innerHTML = modalEmails.map((c, i) =>
@@ -126,77 +171,97 @@ function renderChips() {
 }
 
 function addEmails(raw) {
-  raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean).forEach(correo => {
-    if (!modalEmails.includes(correo)) modalEmails.push(correo);
-  });
+  raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean).forEach(c => { if (!modalEmails.includes(c)) modalEmails.push(c); });
   renderChips();
 }
 
-function abrirModal(mode, project) {
-  modalMode = mode;
-  modalProjectId = project ? project.id : null;
-  modalEmails = project ? [...project.stakeholders] : [];
-  $('modalTitle').textContent = mode === 'new' ? 'Nuevo proyecto' : `Destinatarios · ${project.nombre}`;
-  $('modalNombre').value = project ? project.nombre : '';
-  $('modalNombre').parentElement.style.display = mode === 'new' ? '' : 'none';
+function abrirModal(cfg) {
+  modalCfg = cfg;
+  modalEmails = cfg.emails ? [...cfg.emails] : [];
+  $('modalTitle').textContent = cfg.title;
+  $('modalNombreField').style.display = cfg.showName ? '' : 'none';
+  $('modalNombreLabel').textContent = cfg.nameLabel || 'Nombre';
+  $('modalNombre').value = cfg.nombre || '';
+  $('modalNombre').placeholder = cfg.placeholder || 'Nombre';
+  $('chipsField').style.display = cfg.showChips ? '' : 'none';
   $('chipEntry').value = '';
   renderChips();
   $('projectModal').classList.remove('hidden');
-  setTimeout(() => (mode === 'new' ? $('modalNombre') : $('chipEntry')).focus(), 50);
+  setTimeout(() => (cfg.showName ? $('modalNombre') : $('chipEntry')).focus(), 50);
 }
 
 function cerrarModal() { $('projectModal').classList.add('hidden'); }
-
-$('btnNuevoProyecto').addEventListener('click', () => abrirModal('new'));
-$('btnEditarProyecto').addEventListener('click', () => {
-  const p = proyectoActual();
-  if (!p) return toast('Crea un proyecto primero.', 'error');
-  abrirModal('edit', p);
-});
 
 $('chipEntry').addEventListener('keydown', e => {
   if (['Enter', ',', ';', ' '].includes(e.key)) {
     e.preventDefault();
     if (e.target.value.trim()) { addEmails(e.target.value); e.target.value = ''; }
-  } else if (e.key === 'Backspace' && !e.target.value && modalEmails.length) {
-    modalEmails.pop(); renderChips();
-  }
+  } else if (e.key === 'Backspace' && !e.target.value && modalEmails.length) { modalEmails.pop(); renderChips(); }
 });
 $('chipEntry').addEventListener('blur', e => { if (e.target.value.trim()) { addEmails(e.target.value); e.target.value = ''; } });
-$('chipEntry').addEventListener('paste', e => {
-  e.preventDefault();
-  addEmails((e.clipboardData || window.clipboardData).getData('text'));
-});
+$('chipEntry').addEventListener('paste', e => { e.preventDefault(); addEmails((e.clipboardData || window.clipboardData).getData('text')); });
 $('chipsInput').addEventListener('click', () => $('chipEntry').focus());
-$('chipsList').addEventListener('click', e => {
-  const x = e.target.closest('.x');
-  if (x) { modalEmails.splice(+x.dataset.i, 1); renderChips(); }
-});
-
+$('chipsList').addEventListener('click', e => { const x = e.target.closest('.x'); if (x) { modalEmails.splice(+x.dataset.i, 1); renderChips(); } });
 $('modalCancel').addEventListener('click', cerrarModal);
 $('projectModal').addEventListener('click', e => { if (e.target.id === 'projectModal') cerrarModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarModal(); });
 
 $('modalSave').addEventListener('click', () => {
-  if ($('chipEntry').value.trim()) { addEmails($('chipEntry').value); $('chipEntry').value = ''; }
-  const invalidos = modalEmails.filter(c => !EMAIL_RE.test(c));
-  if (invalidos.length && !confirm(`Hay correos con formato inválido:\n${invalidos.join('\n')}\n\n¿Guardar de todas formas?`)) return;
-
-  const all = LS.projects();
-  if (modalMode === 'new') {
-    const nombre = $('modalNombre').value.trim();
-    if (!nombre) return toast('Escribe el nombre del proyecto.', 'error');
-    const p = { id: Math.random().toString(36).slice(2, 10), nombre, stakeholders: modalEmails };
-    all.push(p); LS.setProjects(all);
-    cerrarModal(); cargarProyectos(p.id);
-    toast('Proyecto creado.');
-  } else {
-    const target = all.find(x => x.id === modalProjectId);
-    target.stakeholders = modalEmails;
-    LS.setProjects(all);
-    cerrarModal(); cargarProyectos(modalProjectId);
-    toast('Destinatarios actualizados.');
+  if (modalCfg.showChips && $('chipEntry').value.trim()) { addEmails($('chipEntry').value); $('chipEntry').value = ''; }
+  if (modalCfg.showChips) {
+    const invalidos = modalEmails.filter(c => !EMAIL_RE.test(c));
+    if (invalidos.length && !confirm(`Hay correos con formato inválido:\n${invalidos.join('\n')}\n\n¿Guardar de todas formas?`)) return;
   }
+  const nombre = modalCfg.showName ? $('modalNombre').value.trim() : null;
+  if (modalCfg.showName && !nombre) return toast('Escribe el nombre.', 'error');
+  modalCfg.onSave(nombre, modalEmails);
+  cerrarModal();
+});
+
+// Nuevo proyecto (nombre) -> crea también una serie "General"
+$('btnNuevoProyecto').addEventListener('click', () => abrirModal({
+  title: 'Nuevo proyecto', showName: true, nameLabel: 'Nombre del proyecto', placeholder: 'Ej: Despliegue Bitlocker', showChips: false,
+  onSave: (nombre) => {
+    const pid = genId(), sid = genId();
+    LS.setProjects([...LS.projects(), { id: pid, nombre }]);
+    LS.setSeries([...LS.series(), { id: sid, projectId: pid, nombre: 'General', stakeholders: [] }]);
+    cargarProyectos(pid); cargarSeries(sid);
+    toast('Proyecto creado. Añade tipos de reunión con "+ Tipo".');
+  }
+}));
+
+// Nueva serie (tipo de reunión): nombre + correos
+$('btnNuevaSerie').addEventListener('click', () => {
+  const p = proyectoActual();
+  if (!p) return toast('Crea o selecciona un proyecto primero.', 'error');
+  abrirModal({
+    title: `Nuevo tipo de reunión · ${p.nombre}`, showName: true, nameLabel: 'Nombre del tipo de reunión',
+    placeholder: 'Ej: Weekly, Comité de gestión OTA...', showChips: true, emails: [],
+    onSave: (nombre, emails) => {
+      const sid = genId();
+      LS.setSeries([...LS.series(), { id: sid, projectId: p.id, nombre, stakeholders: emails }]);
+      cargarProyectos(p.id); cargarSeries(sid);
+      toast('Tipo de reunión creado.');
+    }
+  });
+});
+
+// Editar serie: nombre + correos
+$('btnEditarSerie').addEventListener('click', () => {
+  const s = serieActual();
+  if (!s) return toast('Crea o selecciona un tipo de reunión primero.', 'error');
+  abrirModal({
+    title: `Editar · ${s.nombre}`, showName: true, nameLabel: 'Nombre del tipo de reunión',
+    nombre: s.nombre, showChips: true, emails: s.stakeholders,
+    onSave: (nombre, emails) => {
+      const all = LS.series();
+      const t = all.find(x => x.id === s.id);
+      t.nombre = nombre; t.stakeholders = emails;
+      LS.setSeries(all);
+      cargarProyectos(s.projectId); cargarSeries(s.id);
+      toast('Tipo de reunión actualizado.');
+    }
+  });
 });
 
 // ---------- Generación con Gemini ----------
@@ -227,24 +292,25 @@ const GEMINI_SCHEMA = {
   required: ['fecha_reunion', 'participantes', 'acuerdos'],
 };
 
-function buildSystemPrompt(projectName, hoy, lunesSemana) {
-  return `Eres Scribe, el asistente de PMO de Minsait para el proyecto "${projectName}" en Antamina.
+function buildSystemPrompt(projectName, serieName, hoy, lunesSemana) {
+  return `Eres Scribe, el asistente de PMO de Minsait para el proyecto "${projectName}" en Antamina, tipo de reunión "${serieName}".
 
-Con base en la transcripción de una reunión de Teams y la lista de acuerdos históricos abiertos del proyecto, genera una minuta accionable de seguimiento para enviar por correo a los participantes e involucrados del proyecto.
+Con base en la transcripción de una reunión de Teams y la lista de acuerdos históricos de este mismo tipo de reunión, genera una minuta accionable de seguimiento para enviar por correo a los participantes e involucrados.
 
 Fecha actual: ${hoy}. La semana actual inicia el lunes ${lunesSemana}.
 
 Instrucciones:
-- Identifica la fecha de la reunión, los participantes y la próxima reunión programada, si se mencionan en la transcripción.
+- Identifica la fecha de la reunión, los participantes y la próxima reunión programada, si se mencionan.
 - Extrae todos los acuerdos, acciones y compromisos de la transcripción.
-- Cruza la transcripción con los acuerdos históricos abiertos: si un acuerdo histórico se menciona como avanzado, completado, reprogramado u observado, actualiza su estado, fecha comprometida o fecha de cierre, conservando su id. Los acuerdos históricos que no se mencionan se mantienen sin cambios (mismo id, mismo estado).
-- Los acuerdos nuevos detectados en la transcripción llevan id null.
-- Redacta las acciones en lenguaje formal, claro y accionable (verbo + entregable + contexto necesario).
+- Cruza la transcripción con los ACUERDOS ABIERTOS: si uno se menciona como avanzado, completado, reprogramado u observado, actualiza su estado/fecha conservando su id. Los que no se mencionan se mantienen igual (mismo id, mismo estado).
+- Revisa también los ACUERDOS YA CERRADOS ANTERIORMENTE: si en la transcripción se vuelve a plantear una actividad que ya fue cerrada antes, no la dupliques como nueva; menciónalo en el texto de la acción (ej.: "Reabrir / dar continuidad a ... (ya cerrado el [fecha])").
+- Los acuerdos nuevos llevan id null.
+- Redacta en lenguaje formal, claro y accionable (verbo + entregable + contexto).
 - Si una fecha no está indicada, usa "Por definir".
 - Estados permitidos: Pendiente, Programado, En curso, Observado, Completado.
-- Si un acuerdo se cerró en la reunión, marca estado Completado y fecha_cierre con la fecha de la reunión.
-- Marca critico=true únicamente en acuerdos realmente críticos: bloquean el avance, tienen riesgo alto o urgencia explícita en la conversación.
-- No inventes acuerdos, responsables ni fechas que no tengan sustento en la transcripción o en los históricos.`;
+- Si un acuerdo se cerró en la reunión, marca Completado y fecha_cierre con la fecha de la reunión.
+- critico=true solo en acuerdos que bloquean el avance, tienen riesgo alto o urgencia explícita.
+- No inventes acuerdos, responsables ni fechas sin sustento en la transcripción o los históricos.`;
 }
 
 async function callGemini(system, userMessage) {
@@ -259,9 +325,8 @@ async function callGemini(system, userMessage) {
     }),
   });
   if (!r.ok) {
-    if (r.status === 400 || r.status === 401 || r.status === 403) {
-      throw new Error('API key inválida o sin permisos. Revisa la configuración (botón ⚙ API key).');
-    }
+    if ([400, 401, 403].includes(r.status)) throw new Error('API key inválida o sin permisos. Revisa la configuración (botón ⚙ API key).');
+    if (r.status === 503) throw new Error('Gemini está con alta demanda ahora mismo. Espera unos segundos e inténtalo de nuevo.');
     throw new Error(`Error de Gemini (${r.status}). Inténtalo de nuevo.`);
   }
   const data = await r.json();
@@ -279,7 +344,8 @@ $('transcript').addEventListener('input', e => {
 
 $('btnGenerar').addEventListener('click', async () => {
   const p = proyectoActual();
-  if (!p) return setStatus('status', 'Selecciona o crea un proyecto.', true);
+  const s = serieActual();
+  if (!p || !s) return setStatus('status', 'Selecciona un proyecto y un tipo de reunión (o créalos).', true);
   if (!LS.key()) {
     $('panelConfig').classList.remove('hidden');
     refreshKeyStatus();
@@ -290,11 +356,16 @@ $('btnGenerar').addEventListener('click', async () => {
 
   const hoy = hoyISO();
   const lunesSemana = lunesDeLaSemana(hoy);
-  const historicosAbiertos = LS.acuerdos(p.id).filter(a => a.estado !== 'Completado');
-  const system = buildSystemPrompt(p.nombre, hoy, lunesSemana);
+  const todos = LS.acuerdos(s.id);
+  const abiertos = todos.filter(a => a.estado !== 'Completado');
+  const cerrados = todos.filter(a => a.estado === 'Completado').slice(-25);
+  const system = buildSystemPrompt(p.nombre, s.nombre, hoy, lunesSemana);
   const userMessage =
-`ACUERDOS HISTÓRICOS ABIERTOS DEL PROYECTO (JSON):
-${JSON.stringify(historicosAbiertos.map(({ id, accion, responsable, estado, fecha_comprometida, critico }) => ({ id, accion, responsable, estado, fecha_comprometida, critico })), null, 2)}
+`ACUERDOS ABIERTOS DE ESTE TIPO DE REUNIÓN (JSON):
+${JSON.stringify(abiertos.map(({ id, accion, responsable, estado, fecha_comprometida, critico }) => ({ id, accion, responsable, estado, fecha_comprometida, critico })), null, 2)}
+
+ACUERDOS YA CERRADOS ANTERIORMENTE (referencia para no duplicar):
+${JSON.stringify(cerrados.map(({ accion, responsable, fecha_cierre }) => ({ accion, responsable, fecha_cierre })), null, 2)}
 
 TRANSCRIPCIÓN DE LA REUNIÓN:
 ${transcript}`;
@@ -357,9 +428,7 @@ function crearFila(a = {}) {
 }
 
 function renumerar() {
-  [...$('tablaAcuerdos').querySelectorAll('tbody tr')].forEach((tr, i) => {
-    tr.querySelector('.num').textContent = i + 1;
-  });
+  [...$('tablaAcuerdos').querySelectorAll('tbody tr')].forEach((tr, i) => { tr.querySelector('.num').textContent = i + 1; });
 }
 
 $('btnAgregarFila').addEventListener('click', () => {
@@ -375,9 +444,7 @@ function leerMinuta() {
     estado: tr.querySelector('.f-estado').value,
     fecha_comprometida: tr.querySelector('.f-fecha').value.trim() || 'Por definir',
     critico: tr.querySelector('.f-critico').checked,
-    fecha_cierre: tr.querySelector('.f-estado').value === 'Completado'
-      ? (tr.dataset.fechaCierre || hoyISO())
-      : null,
+    fecha_cierre: tr.querySelector('.f-estado').value === 'Completado' ? (tr.dataset.fechaCierre || hoyISO()) : null,
     created_at: tr.dataset.createdAt || undefined,
   })).filter(a => a.accion);
 
@@ -389,43 +456,55 @@ function leerMinuta() {
   };
 }
 
-// ---------- Guardar seguimiento ----------
+// ---------- Guardar seguimiento + archivar minuta ----------
 
 function guardar() {
-  const p = proyectoActual();
+  const s = serieActual();
   const m = leerMinuta();
-  const existentes = LS.acuerdos(p.id);
   const hoy = hoyISO();
-  const idsActualizados = new Set();
 
+  // 1) Actualizar el seguimiento vivo de la serie
+  const existentes = LS.acuerdos(s.id);
+  const idsActualizados = new Set();
   const actualizados = m.acuerdos.map(a => {
-    const id = a.id || Math.random().toString(36).slice(2, 10);
+    const id = a.id || genId();
     if (a.id) idsActualizados.add(a.id);
     return { ...a, id, updated_at: hoy, created_at: a.created_at || hoy };
   });
-
   const noTocados = existentes.filter(a => !idsActualizados.has(a.id));
-  LS.setAcuerdos(p.id, [...noTocados, ...actualizados]);
+  LS.setAcuerdos(s.id, [...noTocados, ...actualizados]);
+
+  // 2) Archivar la minuta (upsert por fecha de reunión)
+  const minutas = LS.minutas(s.id);
+  const snapshot = {
+    id: genId(),
+    fecha_reunion: m.fecha_reunion,
+    saved_at: hoy,
+    participantes: m.participantes,
+    proxima_reunion: m.proxima_reunion,
+    acuerdos: actualizados.map(({ id, accion, responsable, estado, fecha_comprometida, critico, fecha_cierre }) =>
+      ({ id, accion, responsable, estado, fecha_comprometida, critico, fecha_cierre })),
+  };
+  const idx = minutas.findIndex(x => x.fecha_reunion === m.fecha_reunion);
+  if (idx >= 0) { snapshot.id = minutas[idx].id; minutas[idx] = snapshot; } else { minutas.push(snapshot); }
+  LS.setMinutas(s.id, minutas);
+
   return m;
 }
 
 $('btnGuardar').addEventListener('click', () => {
   guardar();
-  toast('Seguimiento guardado. Se cruzará con la próxima minuta.');
+  toast('Seguimiento guardado y minuta archivada en el historial.');
 });
 
 // ---------- Render del correo ----------
 
-function esc(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function subjectFor(m, projectName) {
+function subjectFor(m, projectName, serieName) {
   const [y, mo, d] = (m.fecha_reunion || hoyISO()).split('-');
-  return `Minuta de seguimiento – ${projectName} – ${d}/${mo}/${y}`;
+  return `Minuta – ${projectName} · ${serieName} – ${d}/${mo}/${y}`;
 }
 
-function renderMinutaHtml(minuta, projectName) {
+function renderMinutaHtml(minuta, projectName, serieName) {
   const filas = minuta.acuerdos.map((a, i) => {
     const color = a.critico ? 'color:#C00000;font-weight:bold;' : 'color:#333333;';
     const fecha = a.fecha_comprometida && a.fecha_comprometida !== '' ? a.fecha_comprometida : 'Por definir';
@@ -440,12 +519,11 @@ function renderMinutaHtml(minuta, projectName) {
 
   const participantes = (minuta.participantes || []).length
     ? `<p style="margin:4px 0;"><b>Participantes:</b> ${esc(minuta.participantes.join(', '))}</p>` : '';
-  const proxima = minuta.proxima_reunion
-    ? `<p style="margin:4px 0;"><b>Próxima reunión:</b> ${esc(minuta.proxima_reunion)}</p>` : '';
+  const proxima = minuta.proxima_reunion ? `<p style="margin:4px 0;"><b>Próxima reunión:</b> ${esc(minuta.proxima_reunion)}</p>` : '';
 
   return `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#333333;">
   <p>Estimados, buen día:</p>
-  <p>Comparto la minuta de seguimiento de la reunión del proyecto <b>${esc(projectName)}</b>.</p>
+  <p>Comparto la minuta de seguimiento de la reunión <b>${esc(serieName)}</b> del proyecto <b>${esc(projectName)}</b>.</p>
   <p style="margin:4px 0;"><b>Fecha de reunión:</b> ${esc(fechaLarga(minuta.fecha_reunion))}</p>
   ${participantes}
   ${proxima}
@@ -466,14 +544,14 @@ function renderMinutaHtml(minuta, projectName) {
 }
 
 $('btnPreview').addEventListener('click', () => {
-  const p = proyectoActual();
+  const p = proyectoActual(), s = serieActual();
   const m = leerMinuta();
   if (!m.acuerdos.length) return toast('No hay acuerdos para incluir en la minuta.', 'error');
-  $('previewRecipients').innerHTML = p.stakeholders.length
-    ? p.stakeholders.map(c => chipHtml(c, !EMAIL_RE.test(c))).join('')
-    : '<span class="none">Sin destinatarios — configúralos con ✎ Destinatarios</span>';
-  $('previewSubject').textContent = subjectFor(m, p.nombre);
-  $('previewFrame').srcdoc = renderMinutaHtml(m, p.nombre);
+  $('previewRecipients').innerHTML = s.stakeholders.length
+    ? s.stakeholders.map(c => chipHtml(c, !EMAIL_RE.test(c))).join('')
+    : '<span class="none">Sin destinatarios — configúralos con ✎ Editar</span>';
+  $('previewSubject').textContent = subjectFor(m, p.nombre, s.nombre);
+  $('previewFrame').srcdoc = renderMinutaHtml(m, p.nombre, s.nombre);
   $('paso3').classList.remove('hidden');
   setStep(3);
   $('paso3').scrollIntoView({ behavior: 'smooth' });
@@ -495,17 +573,14 @@ function htmlToText(html) {
 }
 
 $('btnEml').addEventListener('click', () => {
-  const p = proyectoActual();
-  if (!p) return;
-  if (!p.stakeholders.length && !confirm('Este proyecto no tiene correos configurados. ¿Descargar el .eml sin destinatarios?')) return;
+  const p = proyectoActual(), s = serieActual();
+  if (!s.stakeholders.length && !confirm('Este tipo de reunión no tiene correos configurados. ¿Descargar el .eml sin destinatarios?')) return;
   const m = guardar();
-  const html = renderMinutaHtml(m, p.nombre);
-  const subject = subjectFor(m, p.nombre);
+  const html = renderMinutaHtml(m, p.nombre, s.nombre);
+  const subject = subjectFor(m, p.nombre, s.nombre);
   const body = `<html><body>${html}</body></html>`;
-
-  // X-Unsent: 1 hace que Outlook (escritorio) lo abra como borrador listo para enviar
   const eml = [
-    `To: ${p.stakeholders.join('; ')}`,
+    `To: ${s.stakeholders.join('; ')}`,
     `Subject: =?utf-8?B?${b64utf8(subject)}?=`,
     'X-Unsent: 1',
     'MIME-Version: 1.0',
@@ -514,11 +589,10 @@ $('btnEml').addEventListener('click', () => {
     '',
     b64utf8(body).replace(/(.{76})/g, '$1\r\n'),
   ].join('\r\n');
-
   const [y, mo, d] = m.fecha_reunion.split('-');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([eml], { type: 'message/rfc822' }));
-  a.download = `Minuta ${p.nombre} ${d}-${mo}-${y}.eml`;
+  a.download = `Minuta ${p.nombre} ${s.nombre} ${d}-${mo}-${y}.eml`;
   a.click();
   URL.revokeObjectURL(a.href);
   setStatus('status3', 'Seguimiento guardado y .eml descargado. Ábrelo con Outlook: saldrá como borrador listo para enviar.');
@@ -526,12 +600,10 @@ $('btnEml').addEventListener('click', () => {
 });
 
 $('btnOutlookWeb').addEventListener('click', async () => {
-  const p = proyectoActual();
-  if (!p) return;
+  const p = proyectoActual(), s = serieActual();
   const m = guardar();
-  const html = renderMinutaHtml(m, p.nombre);
-  const subject = subjectFor(m, p.nombre);
-
+  const html = renderMinutaHtml(m, p.nombre, s.nombre);
+  const subject = subjectFor(m, p.nombre, s.nombre);
   let copiado = false;
   try {
     await navigator.clipboard.write([new ClipboardItem({
@@ -540,21 +612,155 @@ $('btnOutlookWeb').addEventListener('click', async () => {
     })]);
     copiado = true;
   } catch {
-    try { await navigator.clipboard.writeText(htmlToText(html)); copiado = true; } catch { /* sin permiso de portapapeles */ }
+    try { await navigator.clipboard.writeText(htmlToText(html)); copiado = true; } catch { /* sin permiso */ }
   }
-
-  const to = p.stakeholders.join(';');
-  const url = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(subject)}`;
+  const url = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(s.stakeholders.join(';'))}&subject=${encodeURIComponent(subject)}`;
   window.open(url, '_blank', 'noopener');
-
   setStatus('status3', copiado
     ? 'Minuta copiada al portapapeles. En la ventana de Outlook web, haz clic en el cuerpo del correo y pega con Ctrl+V.'
-    : 'Se abrió Outlook web con destinatarios y asunto. Vuelve a Scribe y usa "Descargar .eml" si necesitas el cuerpo con formato.');
+    : 'Se abrió Outlook web con destinatarios y asunto. Usa "Descargar .eml" si necesitas el cuerpo con formato.');
   toast(copiado ? 'Minuta copiada — pega con Ctrl+V en Outlook web.' : 'Outlook web abierto.');
+});
+
+// ---------- Historial y búsqueda ----------
+
+$('btnHistorial').addEventListener('click', () => {
+  const panel = $('panelHistorial');
+  panel.classList.toggle('hidden');
+  if (!panel.classList.contains('hidden')) { renderHistorial(); panel.scrollIntoView({ behavior: 'smooth' }); }
+});
+
+function estadoBadge(a) {
+  if (a.critico) return '<span class="hi-estado critico">Crítico</span>';
+  if (a.estado === 'Completado') return '<span class="hi-estado completado">Completado</span>';
+  return `<span class="hi-estado">${esc(a.estado)}</span>`;
+}
+
+function highlight(txt, q) {
+  const i = txt.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return esc(txt);
+  return esc(txt.slice(0, i)) + '<mark>' + esc(txt.slice(i, i + q.length)) + '</mark>' + esc(txt.slice(i + q.length));
+}
+
+function buscar(q) {
+  const res = [];
+  const projById = Object.fromEntries(LS.projects().map(p => [p.id, p.nombre]));
+  LS.series().forEach(s => {
+    LS.minutas(s.id).forEach(min => {
+      (min.acuerdos || []).forEach(a => {
+        const hay = (a.accion + ' ' + a.responsable).toLowerCase().includes(q.toLowerCase());
+        if (hay) res.push({ proyecto: projById[s.projectId] || '—', serie: s.nombre, fecha: min.fecha_reunion, a });
+      });
+    });
+  });
+  res.sort((x, y) => (y.fecha || '').localeCompare(x.fecha || ''));
+  return res.slice(0, 60);
+}
+
+$('histSearch').addEventListener('input', e => {
+  const q = e.target.value.trim();
+  const box = $('histResults');
+  if (q.length < 2) { box.innerHTML = ''; return; }
+  const res = buscar(q);
+  if (!res.length) { box.innerHTML = '<div class="hist-empty">Sin coincidencias en las minutas archivadas.</div>'; return; }
+  box.innerHTML = res.map(r => `
+    <div class="hist-item">
+      <div class="hi-top">
+        <span class="hi-badge">${esc(r.proyecto)} · ${esc(r.serie)}</span>
+        ${estadoBadge(r.a)}
+        <span class="hi-fecha">${esc(r.fecha)}</span>
+      </div>
+      <div class="hi-accion">${highlight(r.a.accion, q)}</div>
+      <div class="hi-meta">Responsable: ${esc(r.a.responsable)} · Fecha comprometida: ${esc(r.a.fecha_comprometida || 'Por definir')}${r.a.fecha_cierre ? ' · Cerrado: ' + esc(r.a.fecha_cierre) : ''}</div>
+    </div>`).join('');
+});
+
+function renderHistorial() {
+  const s = serieActual();
+  const box = $('serieMinutas');
+  $('histPreview').classList.add('hidden');
+  $('serieMinutasLabel').textContent = s ? `Minutas archivadas · ${s.nombre}` : 'Minutas archivadas';
+  if (!s) { box.innerHTML = '<div class="hist-empty">Selecciona un tipo de reunión.</div>'; return; }
+  const minutas = LS.minutas(s.id).slice().sort((a, b) => (b.fecha_reunion || '').localeCompare(a.fecha_reunion || ''));
+  if (!minutas.length) { box.innerHTML = '<div class="hist-empty">Aún no hay minutas archivadas de este tipo de reunión. Se archivan al guardar o descargar el correo.</div>'; return; }
+  box.innerHTML = minutas.map(m => {
+    const abiertos = (m.acuerdos || []).filter(a => a.estado !== 'Completado').length;
+    return `<div class="minuta-row" data-id="${m.id}">
+      <span class="mr-fecha">${esc(fechaLarga(m.fecha_reunion))}</span>
+      <span class="mr-info">${(m.acuerdos || []).length} acuerdo(s) · ${abiertos} abierto(s)</span>
+      <span class="mr-actions">
+        <button class="link" data-act="ver" data-id="${m.id}">Ver minuta</button>
+        <button class="link danger" data-act="del" data-id="${m.id}">Eliminar</button>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+$('serieMinutas').addEventListener('click', e => {
+  const btn = e.target.closest('.link');
+  if (!btn) return;
+  const s = serieActual();
+  const p = proyectoActual();
+  const minutas = LS.minutas(s.id);
+  const m = minutas.find(x => x.id === btn.dataset.id);
+  if (!m) return;
+  if (btn.dataset.act === 'ver') {
+    const frame = $('histPreview');
+    frame.srcdoc = renderMinutaHtml(m, p.nombre, s.nombre);
+    frame.classList.remove('hidden');
+    frame.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else if (btn.dataset.act === 'del') {
+    if (!confirm('¿Eliminar esta minuta del archivo? (no afecta el seguimiento de acuerdos)')) return;
+    LS.setMinutas(s.id, minutas.filter(x => x.id !== m.id));
+    renderHistorial();
+    toast('Minuta eliminada del archivo.');
+  }
+});
+
+// ---------- Respaldo exportar / importar ----------
+
+$('btnExport').addEventListener('click', () => {
+  const data = { app: 'scribe', version: 2, exported_at: new Date().toISOString(), projects: LS.projects(), series: LS.series(), acuerdos: {}, minutas: {} };
+  LS.series().forEach(s => { data.acuerdos[s.id] = LS.acuerdos(s.id); data.minutas[s.id] = LS.minutas(s.id); });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  a.download = `Scribe respaldo ${hoyISO()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Respaldo descargado.');
+});
+
+$('btnImport').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (data.app !== 'scribe' || !Array.isArray(data.projects)) throw new Error('Archivo no válido');
+      if (!confirm('Esto reemplazará TODOS los proyectos, tipos de reunión, acuerdos y minutas de este navegador por los del respaldo. ¿Continuar?')) return;
+      // Limpiar datos scribe actuales (menos la API key)
+      Object.keys(localStorage).filter(k => k.startsWith('scribe_') && k !== 'scribe_gemini_key').forEach(k => localStorage.removeItem(k));
+      LS.setProjects(data.projects);
+      LS.setSeries(data.series || []);
+      Object.entries(data.acuerdos || {}).forEach(([sid, a]) => LS.setAcuerdos(sid, a));
+      Object.entries(data.minutas || {}).forEach(([sid, m]) => LS.setMinutas(sid, m));
+      localStorage.setItem('scribe_schema', '2');
+      cargarProyectos();
+      toast('Respaldo importado correctamente.');
+    } catch (err) {
+      toast('No se pudo importar: ' + err.message, 'error');
+    } finally {
+      e.target.value = '';
+    }
+  };
+  reader.readAsText(file);
 });
 
 // ---------- Init ----------
 
+migrar();
 cargarProyectos();
 setStep(1);
 if (!LS.key()) { $('panelConfig').classList.remove('hidden'); refreshKeyStatus(); }

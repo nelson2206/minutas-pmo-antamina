@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2">
+<link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
 <div class="grain"></div>
@@ -40,17 +40,32 @@
       <button class="btn primary" id="btnGuardarKey">Guardar</button>
     </div>
     <p class="hint" id="keyStatus"></p>
+    <hr class="cfg-sep">
+    <label class="cfg-lbl">Respaldo de datos</label>
+    <p class="hint">Tus proyectos, tipos de reunión, acuerdos y minutas viven solo en este navegador. Descarga un respaldo para no perderlos o para moverlos a otra PC.</p>
+    <div class="row">
+      <button class="btn secondary" id="btnExport">⭳ Exportar respaldo (.json)</button>
+      <button class="btn secondary" id="btnImport">⭱ Importar respaldo</button>
+      <input type="file" id="importFile" accept="application/json,.json" style="display:none">
+    </div>
   </section>
 
   <section class="card" id="paso1">
-    <h2>1 · Proyecto y transcripción</h2>
+    <h2>1 · Proyecto, tipo de reunión y transcripción</h2>
     <div class="row">
       <div class="field grow">
         <label for="projectSelect">Proyecto</label>
         <select id="projectSelect"></select>
       </div>
-      <button class="btn secondary" id="btnNuevoProyecto">+ Nuevo proyecto</button>
-      <button class="btn secondary" id="btnEditarProyecto">✎ Destinatarios</button>
+      <button class="btn secondary" id="btnNuevoProyecto">+ Proyecto</button>
+    </div>
+    <div class="row">
+      <div class="field grow">
+        <label for="seriesSelect">Tipo de reunión</label>
+        <select id="seriesSelect"></select>
+      </div>
+      <button class="btn secondary" id="btnNuevaSerie">+ Tipo</button>
+      <button class="btn secondary" id="btnEditarSerie">✎ Editar</button>
     </div>
     <div class="recipients-hint" id="stakeholdersHint"></div>
     <div class="field">
@@ -60,8 +75,22 @@
     </div>
     <div class="row">
       <button class="btn primary" id="btnGenerar"><span class="btn-label">Generar minuta</span></button>
+      <button class="btn secondary" id="btnHistorial">🔎 Historial y comparación</button>
       <span id="status" class="status"></span>
     </div>
+  </section>
+
+  <section class="card hidden" id="panelHistorial">
+    <h2>Historial y comparación</h2>
+    <div class="field">
+      <label for="histSearch">Buscar una actividad, responsable o compromiso en todas las minutas</label>
+      <input type="text" id="histSearch" placeholder="Ej: firewall, matriz de evaluación, capacitación...">
+    </div>
+    <div id="histResults" class="hist-results"></div>
+    <hr class="cfg-sep">
+    <label class="cfg-lbl" id="serieMinutasLabel">Minutas archivadas de este tipo de reunión</label>
+    <div id="serieMinutas" class="minutas-list"></div>
+    <iframe id="histPreview" class="hidden" title="Minuta archivada"></iframe>
   </section>
 
   <section class="card hidden" id="paso2">
@@ -144,11 +173,11 @@
 <div class="modal-overlay hidden" id="projectModal">
   <div class="modal">
     <h3 id="modalTitle">Nuevo proyecto</h3>
-    <div class="field">
-      <label for="modalNombre">Nombre del proyecto</label>
+    <div class="field" id="modalNombreField">
+      <label for="modalNombre" id="modalNombreLabel">Nombre</label>
       <input type="text" id="modalNombre" placeholder="Ej: Despliegue Bitlocker">
     </div>
-    <div class="field">
+    <div class="field" id="chipsField">
       <label>Correos de los interesados</label>
       <div class="chips-input" id="chipsInput">
         <span class="chips-list" id="chipsList"></span>
@@ -166,6 +195,6 @@
 <!-- Toasts -->
 <div class="toast-wrap" id="toastWrap"></div>
 
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>

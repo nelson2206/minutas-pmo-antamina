@@ -239,6 +239,41 @@ input[type="checkbox"] { width: auto; accent-color: var(--scribe); }
 
 .table-wrap { overflow-x: auto; }
 
+/* ════════ Respaldo / historial ════════ */
+.cfg-sep { border: none; border-top: 1px solid var(--glass-brd); margin: 18px 0 14px; }
+.cfg-lbl { display: block; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; color: var(--scribe); margin-bottom: 8px; }
+
+.hist-results { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; max-height: 340px; overflow-y: auto; }
+.hist-empty { font-size: 0.82rem; color: var(--text-soft); font-style: italic; padding: 6px 2px; }
+.hist-item {
+  border: 1px solid var(--glass-brd); border-radius: 12px; padding: 11px 14px;
+  background: rgba(255,255,255,0.025);
+}
+.hist-item .hi-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 5px; }
+.hist-item .hi-badge { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 9999px; background: rgba(255,157,92,0.14); color: var(--scribe-soft); border: 1px solid rgba(255,157,92,0.28); }
+.hist-item .hi-estado { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 9999px; border: 1px solid var(--glass-brd); color: var(--text-soft); }
+.hist-item .hi-estado.completado { color: #7fe0a0; border-color: rgba(80,200,120,0.4); }
+.hist-item .hi-estado.critico { color: #ff8f9a; border-color: rgba(255,90,120,0.45); }
+.hist-item .hi-fecha { font-size: 0.72rem; color: var(--text-soft); margin-left: auto; }
+.hist-item .hi-accion { font-size: 0.86rem; color: var(--text); line-height: 1.45; }
+.hist-item .hi-accion mark { background: rgba(255,157,92,0.32); color: #fff; padding: 0 2px; border-radius: 3px; }
+.hist-item .hi-meta { font-size: 0.72rem; color: var(--text-soft); margin-top: 4px; }
+
+.minutas-list { display: flex; flex-direction: column; gap: 7px; margin: 8px 0; }
+.minuta-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  border: 1px solid var(--glass-brd); border-radius: 10px; padding: 9px 14px;
+  background: rgba(255,255,255,0.02);
+}
+.minuta-row .mr-fecha { font-weight: 700; font-size: 0.85rem; }
+.minuta-row .mr-info { font-size: 0.76rem; color: var(--text-soft); }
+.minuta-row .mr-actions { margin-left: auto; display: flex; gap: 8px; }
+.minuta-row .link { background: none; border: none; color: var(--scribe); font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer; }
+.minuta-row .link:hover { text-decoration: underline; }
+.minuta-row .link.danger { color: #ff8f9a; }
+
+#histPreview { width: 100%; height: 440px; border: 1px solid var(--glass-brd); border-radius: 14px; background: #fff; margin-top: 12px; }
+
 /* ════════ Toasts ════════ */
 .toast-wrap { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 10px; align-items: center; pointer-events: none; }
 .toast {
