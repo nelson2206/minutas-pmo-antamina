@@ -172,6 +172,13 @@ input[type="checkbox"] { width: auto; accent-color: var(--scribe); }
 /* ════════ Chips de correos ════════ */
 .recipients-hint { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 12px; min-height: 22px; }
 .recipients-hint .none { font-size: 0.78rem; color: var(--text-soft); font-style: italic; }
+
+.continuity { font-size: 0.8rem; color: var(--text-soft); line-height: 1.5; margin: 0 0 12px; display: none; }
+.continuity.show { display: block; }
+.continuity b { color: var(--scribe-soft); font-weight: 700; }
+.continuity .cont-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--scribe); margin-right: 7px; vertical-align: middle; box-shadow: 0 0 8px var(--scribe); }
+.continuity.warn { color: #ffcf9a; }
+.continuity.warn .cont-dot { background: #e0a400; box-shadow: 0 0 8px #e0a400; }
 .recipients-hint .lead { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-soft); margin-right: 2px; }
 
 .chip {

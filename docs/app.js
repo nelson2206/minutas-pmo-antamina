@@ -171,12 +171,32 @@ function chipHtml(correo, invalido) {
 function actualizarHint() {
   const s = serieActual();
   const box = $('stakeholdersHint');
-  if (!s) { box.innerHTML = ''; return; }
-  if (!s.stakeholders.length) {
-    box.innerHTML = '<span class="lead">Para</span><span class="none">sin correos configurados — usa ✎ Editar</span>';
-    return;
+  if (s) {
+    box.innerHTML = s.stakeholders.length
+      ? '<span class="lead">Para</span>' + s.stakeholders.map(c => chipHtml(c, !EMAIL_RE.test(c))).join('')
+      : '<span class="lead">Para</span><span class="none">sin correos configurados — usa ✎ Editar</span>';
+  } else {
+    box.innerHTML = '';
   }
-  box.innerHTML = '<span class="lead">Para</span>' + s.stakeholders.map(c => chipHtml(c, !EMAIL_RE.test(c))).join('');
+  actualizarContinuidad();
+}
+
+// Muestra cuántos acuerdos de minutas anteriores se enlazarán en la nueva minuta
+function actualizarContinuidad() {
+  const s = serieActual();
+  const box = $('continuidadHint');
+  box.classList.remove('warn');
+  if (!s) { box.classList.remove('show'); box.innerHTML = ''; return; }
+  const abiertos = LS.acuerdos(s.id).filter(a => a.estado !== 'Completado').length;
+  const nMin = LS.minutas(s.id).length;
+  box.classList.add('show');
+  if (abiertos > 0) {
+    box.innerHTML = `<span class="cont-dot"></span>Esta minuta se enlaza con las anteriores de <b>${esc(s.nombre)}</b>: Scribe considerará <b>${abiertos}</b> acuerdo(s) abierto(s) para actualizar su estado y no duplicarlos.`;
+  } else if (nMin > 0) {
+    box.innerHTML = `<span class="cont-dot"></span>Sin acuerdos abiertos por arrastrar de reuniones anteriores de <b>${esc(s.nombre)}</b> (todos cerrados).`;
+  } else {
+    box.innerHTML = `<span class="cont-dot"></span>Primera minuta de <b>${esc(s.nombre)}</b>: aún no hay acuerdos previos que enlazar. Recuerda <b>Guardar seguimiento</b> para que la próxima los contemple.`;
+  }
 }
 
 // ---------- Modal genérico (proyecto / serie) ----------
@@ -516,6 +536,7 @@ function guardar() {
   if (idx >= 0) { snapshot.id = minutas[idx].id; minutas[idx] = snapshot; } else { minutas.push(snapshot); }
   LS.setMinutas(s.id, minutas);
 
+  actualizarContinuidad();
   return m;
 }
 
