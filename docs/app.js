@@ -10,6 +10,8 @@ const genId = () => Math.random().toString(36).slice(2, 10);
 const LS = {
   key: () => localStorage.getItem('scribe_gemini_key') || '',
   setKey: v => localStorage.setItem('scribe_gemini_key', v),
+  firma: () => localStorage.getItem('scribe_firma') || '',
+  setFirma: v => localStorage.setItem('scribe_firma', v),
   projects: () => JSON.parse(localStorage.getItem('scribe_projects') || '[]'),
   setProjects: p => localStorage.setItem('scribe_projects', JSON.stringify(p)),
   series: () => JSON.parse(localStorage.getItem('scribe_series') || '[]'),
@@ -112,13 +114,19 @@ function refreshKeyStatus() {
 $('btnConfig').addEventListener('click', () => {
   $('panelConfig').classList.toggle('hidden');
   $('apiKey').value = LS.key();
+  $('firmaInput').value = LS.firma();
   refreshKeyStatus();
 });
 
 $('btnGuardarKey').addEventListener('click', () => {
   LS.setKey($('apiKey').value.trim());
   refreshKeyStatus();
-  if (LS.key()) { $('panelConfig').classList.add('hidden'); toast('API key guardada en este navegador.'); }
+  if (LS.key()) toast('API key guardada en este navegador.');
+});
+
+$('btnGuardarFirma').addEventListener('click', () => {
+  LS.setFirma($('firmaInput').value.trim());
+  toast('Firma guardada.');
 });
 
 // ---------- Proyectos y series ----------
@@ -290,6 +298,7 @@ const GEMINI_SCHEMA = {
         type: 'OBJECT',
         properties: {
           id: { type: 'STRING', nullable: true },
+          item: { type: 'STRING', nullable: true },
           accion: { type: 'STRING' },
           responsable: { type: 'STRING' },
           estado: { type: 'STRING', enum: ESTADOS },
@@ -317,6 +326,7 @@ Instrucciones:
 - Cruza la transcripción con los ACUERDOS ABIERTOS: si uno se menciona como avanzado, completado, reprogramado u observado, actualiza su estado/fecha conservando su id. Los que no se mencionan se mantienen igual (mismo id, mismo estado).
 - Revisa también los ACUERDOS YA CERRADOS ANTERIORMENTE: si en la transcripción se vuelve a plantear una actividad que ya fue cerrada antes, no la dupliques como nueva; menciónalo en el texto de la acción (ej.: "Reabrir / dar continuidad a ... (ya cerrado el [fecha])").
 - Los acuerdos nuevos llevan id null.
+- Asigna a cada acuerdo un código de "item" jerárquico agrupando por tema (ej.: "1.1", "1.2", "2.1", "2.1.1"). Agrupa por líneas de trabajo (movilización, documentación, procura, operaciones, seguimiento, etc.). MANTÉN el mismo código item de los acuerdos históricos; los nuevos reciben el siguiente código dentro de su grupo.
 - Redacta en lenguaje formal, claro y accionable (verbo + entregable + contexto).
 - Si una fecha no está indicada, usa "Por definir".
 - Estados permitidos: Pendiente, Programado, En curso, Observado, Completado.
@@ -346,7 +356,7 @@ async function callGemini(system, userMessage) {
   if (!text) throw new Error(`Gemini no devolvió contenido (${data.candidates?.[0]?.finishReason || 'sin detalle'})`);
   const minuta = JSON.parse(text);
   minuta.proxima_reunion = minuta.proxima_reunion || null;
-  minuta.acuerdos = (minuta.acuerdos || []).map(a => ({ ...a, id: a.id || null, fecha_cierre: a.fecha_cierre || null }));
+  minuta.acuerdos = (minuta.acuerdos || []).map(a => ({ ...a, id: a.id || null, item: a.item || '', fecha_cierre: a.fecha_cierre || null }));
   return minuta;
 }
 
@@ -374,7 +384,7 @@ $('btnGenerar').addEventListener('click', async () => {
   const system = buildSystemPrompt(p.nombre, s.nombre, hoy, lunesSemana);
   const userMessage =
 `ACUERDOS ABIERTOS DE ESTE TIPO DE REUNIÓN (JSON):
-${JSON.stringify(abiertos.map(({ id, accion, responsable, estado, fecha_comprometida, critico }) => ({ id, accion, responsable, estado, fecha_comprometida, critico })), null, 2)}
+${JSON.stringify(abiertos.map(({ id, item, accion, responsable, estado, fecha_comprometida, critico }) => ({ id, item, accion, responsable, estado, fecha_comprometida, critico })), null, 2)}
 
 ACUERDOS YA CERRADOS ANTERIORMENTE (referencia para no duplicar):
 ${JSON.stringify(cerrados.map(({ accion, responsable, fecha_cierre }) => ({ accion, responsable, fecha_cierre })), null, 2)}
@@ -428,7 +438,7 @@ function crearFila(a = {}) {
   tr.dataset.createdAt = a.created_at || '';
   if (a.critico) tr.classList.add('critico');
   tr.innerHTML = `
-    <td class="num"></td>
+    <td class="num"><input class="f-item" value="${esc(a.item || '')}" placeholder=""></td>
     <td><textarea class="f-accion">${esc(a.accion || '')}</textarea></td>
     <td><input class="f-responsable" value="${esc(a.responsable || '')}"></td>
     <td><select class="f-estado">${ESTADOS.map(e => `<option ${e === a.estado ? 'selected' : ''}>${e}</option>`).join('')}</select></td>
@@ -441,7 +451,10 @@ function crearFila(a = {}) {
 }
 
 function renumerar() {
-  [...$('tablaAcuerdos').querySelectorAll('tbody tr')].forEach((tr, i) => { tr.querySelector('.num').textContent = i + 1; });
+  [...$('tablaAcuerdos').querySelectorAll('tbody tr')].forEach((tr, i) => {
+    const it = tr.querySelector('.f-item');
+    if (it) it.placeholder = String(i + 1);
+  });
 }
 
 $('btnAgregarFila').addEventListener('click', () => {
@@ -452,6 +465,7 @@ $('btnAgregarFila').addEventListener('click', () => {
 function leerMinuta() {
   const acuerdos = [...$('tablaAcuerdos').querySelectorAll('tbody tr')].map(tr => ({
     id: tr.dataset.id || null,
+    item: tr.querySelector('.f-item').value.trim(),
     accion: tr.querySelector('.f-accion').value.trim(),
     responsable: tr.querySelector('.f-responsable').value.trim() || 'Por definir',
     estado: tr.querySelector('.f-estado').value,
@@ -495,8 +509,8 @@ function guardar() {
     saved_at: hoy,
     participantes: m.participantes,
     proxima_reunion: m.proxima_reunion,
-    acuerdos: actualizados.map(({ id, accion, responsable, estado, fecha_comprometida, critico, fecha_cierre }) =>
-      ({ id, accion, responsable, estado, fecha_comprometida, critico, fecha_cierre })),
+    acuerdos: actualizados.map(({ id, item, accion, responsable, estado, fecha_comprometida, critico, fecha_cierre }) =>
+      ({ id, item, accion, responsable, estado, fecha_comprometida, critico, fecha_cierre })),
   };
   const idx = minutas.findIndex(x => x.fecha_reunion === m.fecha_reunion);
   if (idx >= 0) { snapshot.id = minutas[idx].id; minutas[idx] = snapshot; } else { minutas.push(snapshot); }
@@ -510,49 +524,97 @@ $('btnGuardar').addEventListener('click', () => {
   toast('Seguimiento guardado y minuta archivada en el historial.');
 });
 
-// ---------- Render del correo ----------
+// ---------- Render del correo (diseño Antamina · Status Report) ----------
+
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
+
+function fechaCorta(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return iso || 'Por definir';
+  const [, mo, d] = iso.split('-');
+  return `${d}-${MESES[+mo - 1]}`;
+}
+
+// Semáforo de días de retraso, al estilo del Status Report de Antamina
+function semaforo(a, hoy) {
+  if (a.estado === 'Completado') return { color: '#1f9d57', dias: 0 };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a.fecha_comprometida || '')) return { color: a.critico ? '#d21f3c' : '#e0a400', dias: null };
+  const dias = Math.floor((new Date(hoy + 'T12:00:00') - new Date(a.fecha_comprometida + 'T12:00:00')) / 86400000);
+  if (dias > 0) return { color: '#d21f3c', dias };
+  if (a.critico || a.estado === 'Observado') return { color: '#e0a400', dias: 0 };
+  return { color: '#1f9d57', dias: 0 };
+}
+
+function estadoStyle(estado) {
+  const map = {
+    'Completado': 'background:#e3f4ec;color:#1f7a4d',
+    'Programado': 'background:#e6f2f4;color:#00727a',
+    'En curso': 'background:#e9edf7;color:#2e4a8f',
+    'Pendiente': 'background:#eef0f2;color:#5a6875',
+    'Observado': 'background:#fdf1dd;color:#9a6100',
+  };
+  return map[estado] || 'background:#eef0f2;color:#5a6875';
+}
 
 function subjectFor(m, projectName, serieName) {
-  const [y, mo, d] = (m.fecha_reunion || hoyISO()).split('-');
-  return `Minuta – ${projectName} · ${serieName} – ${d}/${mo}/${y}`;
+  return `Status Report | ${projectName} · ${serieName} | ${fechaCorta(m.fecha_reunion || hoyISO())}`;
 }
 
 function renderMinutaHtml(minuta, projectName, serieName) {
+  const hoy = hoyISO();
   const filas = minuta.acuerdos.map((a, i) => {
-    const color = a.critico ? 'color:#C00000;font-weight:bold;' : 'color:#333333;';
-    const fecha = a.fecha_comprometida && a.fecha_comprometida !== '' ? a.fecha_comprometida : 'Por definir';
+    const sem = semaforo(a, hoy);
+    const item = (a.item && a.item.trim()) || String(i + 1);
+    const accion = a.critico ? `<b style="color:#C00000">${esc(a.accion)}</b>` : esc(a.accion);
+    const dot = `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${sem.color};vertical-align:middle"></span>`;
+    const diasTxt = sem.dias === null ? '' : `&nbsp;<span style="color:${sem.color};font-weight:bold">${sem.dias}</span>`;
     return `<tr>
-      <td style="border:1px solid #BFBFBF;padding:6px 8px;text-align:center;${color}">${i + 1}</td>
-      <td style="border:1px solid #BFBFBF;padding:6px 8px;${color}">${esc(a.accion)}</td>
-      <td style="border:1px solid #BFBFBF;padding:6px 8px;${color}">${esc(a.responsable)}</td>
-      <td style="border:1px solid #BFBFBF;padding:6px 8px;text-align:center;${color}">${esc(a.estado)}</td>
-      <td style="border:1px solid #BFBFBF;padding:6px 8px;text-align:center;${color}">${esc(fecha)}</td>
+      <td style="border:1px solid #D8DEE3;padding:7px 9px;text-align:center;font-weight:bold;color:#00565c;white-space:nowrap">${esc(item)}</td>
+      <td style="border:1px solid #D8DEE3;padding:7px 9px;color:#2b3640">${accion}</td>
+      <td style="border:1px solid #D8DEE3;padding:7px 9px;color:#2b3640;white-space:nowrap">${esc(a.responsable)}</td>
+      <td style="border:1px solid #D8DEE3;padding:7px 9px;text-align:center;white-space:nowrap"><span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:9pt;font-weight:bold;${estadoStyle(a.estado)}">${esc(a.estado)}</span></td>
+      <td style="border:1px solid #D8DEE3;padding:7px 9px;text-align:center;color:#2b3640;white-space:nowrap">${esc(fechaCorta(a.fecha_comprometida))}</td>
+      <td style="border:1px solid #D8DEE3;padding:7px 9px;text-align:center;white-space:nowrap">${dot}${diasTxt}</td>
     </tr>`;
   }).join('\n');
 
   const participantes = (minuta.participantes || []).length
-    ? `<p style="margin:4px 0;"><b>Participantes:</b> ${esc(minuta.participantes.join(', '))}</p>` : '';
-  const proxima = minuta.proxima_reunion ? `<p style="margin:4px 0;"><b>Próxima reunión:</b> ${esc(minuta.proxima_reunion)}</p>` : '';
+    ? `<p style="margin:3px 0;color:#4a5661;font-size:10.5pt;"><b style="color:#00565c">Participantes:</b> ${esc(minuta.participantes.join(', '))}</p>` : '';
+  const proxima = minuta.proxima_reunion
+    ? `<p style="margin:3px 0;color:#4a5661;font-size:10.5pt;"><b style="color:#00565c">Próxima reunión programada:</b> ${esc(minuta.proxima_reunion)}</p>` : '';
+  const firma = (LS.firma() || '').trim();
+  const firmaHtml = firma ? esc(firma).replace(/\n/g, '<br>') : '';
 
-  return `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#333333;">
-  <p>Estimados, buen día:</p>
-  <p>Comparto la minuta de seguimiento de la reunión <b>${esc(serieName)}</b> del proyecto <b>${esc(projectName)}</b>.</p>
-  <p style="margin:4px 0;"><b>Fecha de reunión:</b> ${esc(fechaLarga(minuta.fecha_reunion))}</p>
-  ${participantes}
-  ${proxima}
-  <p style="margin:14px 0 6px 0;"><b>Detalle de seguimiento:</b></p>
-  <table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:10.5pt;width:100%;max-width:900px;">
-    <tr style="background-color:#1F3864;color:#FFFFFF;">
-      <th style="border:1px solid #BFBFBF;padding:6px 8px;">N°</th>
-      <th style="border:1px solid #BFBFBF;padding:6px 8px;">Acción / Compromiso</th>
-      <th style="border:1px solid #BFBFBF;padding:6px 8px;">Responsable</th>
-      <th style="border:1px solid #BFBFBF;padding:6px 8px;">Estado</th>
-      <th style="border:1px solid #BFBFBF;padding:6px 8px;">Fecha comprometida</th>
-    </tr>
-    ${filas}
+  return `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#2b3640;max-width:920px;">
+  <table role="presentation" width="100%" style="border-collapse:collapse;background:linear-gradient(90deg,#00565c,#009ca6);border-radius:8px 8px 0 0;">
+    <tr><td style="padding:16px 20px;">
+      <div style="font-size:9pt;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;color:#bfeef0;">Status Report · Seguimiento de acuerdos</div>
+      <div style="font-size:16pt;font-weight:bold;color:#ffffff;margin-top:2px;">${esc(projectName)}</div>
+      <div style="font-size:10.5pt;color:#d9f4f5;margin-top:1px;">${esc(serieName)} &nbsp;·&nbsp; ${esc(fechaLarga(minuta.fecha_reunion))}</div>
+    </td></tr>
   </table>
-  <p style="margin-top:16px;">Agradeceré su apoyo con la atención de las acciones pendientes y programadas según las fechas comprometidas.</p>
-  <p>Saludos cordiales,</p>
+  <div style="border:1px solid #D8DEE3;border-top:none;border-radius:0 0 8px 8px;padding:16px 20px;">
+    <p style="margin:0 0 8px 0;">Estimados, buenas tardes:</p>
+    <p style="margin:0 0 10px 0;">Como parte del seguimiento a los acuerdos del proyecto <b>${esc(projectName)}</b> (${esc(serieName)}), comparto el detalle actualizado de acuerdos, responsables y compromisos.</p>
+    ${participantes}
+    ${proxima}
+    <p style="margin:14px 0 6px 0;font-weight:bold;color:#00565c;">Detalle de seguimiento:</p>
+    <table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:10.5pt;width:100%;">
+      <tr style="background-color:#00565c;color:#FFFFFF;">
+        <th style="border:1px solid #00565c;padding:8px 9px;text-align:center;">Ítem</th>
+        <th style="border:1px solid #00565c;padding:8px 9px;text-align:left;">Acuerdo / Compromiso</th>
+        <th style="border:1px solid #00565c;padding:8px 9px;text-align:left;">Responsable</th>
+        <th style="border:1px solid #00565c;padding:8px 9px;text-align:center;">Estado</th>
+        <th style="border:1px solid #00565c;padding:8px 9px;text-align:center;">Fecha comprometida</th>
+        <th style="border:1px solid #00565c;padding:8px 9px;text-align:center;">Días de retraso</th>
+      </tr>
+      ${filas}
+    </table>
+    <p style="margin:8px 0 0 0;font-size:9pt;color:#6b7a85;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1f9d57;vertical-align:middle"></span> A tiempo &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#e0a400;vertical-align:middle"></span> Alerta &nbsp;&nbsp; <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#d21f3c;vertical-align:middle"></span> Retrasado (días)</p>
+    <p style="margin-top:16px;">Agradeceré su apoyo con la atención de las acciones pendientes, programadas y retrasadas según las fechas comprometidas.</p>
+    <p style="margin:8px 0 0 0;">Quedo atento a cualquier comentario o actualización.</p>
+    <p style="margin:14px 0 2px 0;">Un saludo,</p>
+    ${firmaHtml ? `<p style="margin:0;color:#00565c;font-weight:bold;">${firmaHtml}</p>` : ''}
+  </div>
 </div>`;
 }
 
@@ -749,43 +811,70 @@ $('histSearch').addEventListener('input', e => {
     </div>`).join('');
 });
 
+let histScope = 'serie'; // 'serie' | 'proyecto'
+
+function filaMinuta(m, sid, conSerie) {
+  const abiertos = (m.acuerdos || []).filter(a => a.estado !== 'Completado').length;
+  const serieTag = conSerie ? `<span class="mr-info">${(m.acuerdos || []).length} acuerdo(s) · ${abiertos} abierto(s)</span>` : `<span class="mr-info">${(m.acuerdos || []).length} acuerdo(s) · ${abiertos} abierto(s)</span>`;
+  return `<div class="minuta-row" data-id="${m.id}" data-sid="${sid}">
+    <span class="mr-fecha">${esc(fechaLarga(m.fecha_reunion))}</span>
+    ${serieTag}
+    <span class="mr-actions">
+      <button class="link" data-act="ver" data-id="${m.id}" data-sid="${sid}">Ver minuta</button>
+      <button class="link danger" data-act="del" data-id="${m.id}" data-sid="${sid}">Eliminar</button>
+    </span>
+  </div>`;
+}
+
 function renderHistorial() {
+  const p = proyectoActual();
   const s = serieActual();
   const box = $('serieMinutas');
   $('histPreview').classList.add('hidden');
+  if (!p) { $('serieMinutasLabel').textContent = 'Minutas archivadas'; box.innerHTML = '<div class="hist-empty">Selecciona un proyecto.</div>'; return; }
+
+  if (histScope === 'proyecto') {
+    $('serieMinutasLabel').textContent = `Minutas archivadas · Proyecto ${p.nombre}`;
+    const grupos = seriesDeProyecto(p.id).map(se => {
+      const minutas = LS.minutas(se.id).slice().sort((a, b) => (b.fecha_reunion || '').localeCompare(a.fecha_reunion || ''));
+      if (!minutas.length) return '';
+      return `<div class="hist-group"><div class="hg-head">${esc(se.nombre)} <span class="hg-count">${minutas.length} minuta(s)</span></div>${minutas.map(m => filaMinuta(m, se.id, true)).join('')}</div>`;
+    }).filter(Boolean).join('');
+    box.innerHTML = grupos || '<div class="hist-empty">Aún no hay minutas archivadas en este proyecto. Se archivan al guardar o descargar el correo.</div>';
+    return;
+  }
+
   $('serieMinutasLabel').textContent = s ? `Minutas archivadas · ${s.nombre}` : 'Minutas archivadas';
   if (!s) { box.innerHTML = '<div class="hist-empty">Selecciona un tipo de reunión.</div>'; return; }
   const minutas = LS.minutas(s.id).slice().sort((a, b) => (b.fecha_reunion || '').localeCompare(a.fecha_reunion || ''));
   if (!minutas.length) { box.innerHTML = '<div class="hist-empty">Aún no hay minutas archivadas de este tipo de reunión. Se archivan al guardar o descargar el correo.</div>'; return; }
-  box.innerHTML = minutas.map(m => {
-    const abiertos = (m.acuerdos || []).filter(a => a.estado !== 'Completado').length;
-    return `<div class="minuta-row" data-id="${m.id}">
-      <span class="mr-fecha">${esc(fechaLarga(m.fecha_reunion))}</span>
-      <span class="mr-info">${(m.acuerdos || []).length} acuerdo(s) · ${abiertos} abierto(s)</span>
-      <span class="mr-actions">
-        <button class="link" data-act="ver" data-id="${m.id}">Ver minuta</button>
-        <button class="link danger" data-act="del" data-id="${m.id}">Eliminar</button>
-      </span>
-    </div>`;
-  }).join('');
+  box.innerHTML = minutas.map(m => filaMinuta(m, s.id, false)).join('');
 }
+
+document.querySelectorAll('#scopeSerie, #scopeProyecto').forEach(b => b.addEventListener('click', () => {
+  histScope = b.dataset.scope;
+  $('scopeSerie').classList.toggle('scope-on', histScope === 'serie');
+  $('scopeProyecto').classList.toggle('scope-on', histScope === 'proyecto');
+  renderHistorial();
+}));
 
 $('serieMinutas').addEventListener('click', e => {
   const btn = e.target.closest('.link');
   if (!btn) return;
-  const s = serieActual();
   const p = proyectoActual();
-  const minutas = LS.minutas(s.id);
+  const se = series.find(x => x.id === btn.dataset.sid);
+  if (!se) return;
+  const minutas = LS.minutas(se.id);
   const m = minutas.find(x => x.id === btn.dataset.id);
   if (!m) return;
   if (btn.dataset.act === 'ver') {
     const frame = $('histPreview');
-    frame.srcdoc = renderMinutaHtml(m, p.nombre, s.nombre);
+    frame.srcdoc = renderMinutaHtml(m, p.nombre, se.nombre);
     frame.classList.remove('hidden');
     frame.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } else if (btn.dataset.act === 'del') {
     if (!confirm('¿Eliminar esta minuta del archivo? (no afecta el seguimiento de acuerdos)')) return;
-    LS.setMinutas(s.id, minutas.filter(x => x.id !== m.id));
+    LS.setMinutas(se.id, minutas.filter(x => x.id !== m.id));
     renderHistorial();
     toast('Minuta eliminada del archivo.');
   }
@@ -794,7 +883,7 @@ $('serieMinutas').addEventListener('click', e => {
 // ---------- Respaldo exportar / importar ----------
 
 $('btnExport').addEventListener('click', () => {
-  const data = { app: 'scribe', version: 2, exported_at: new Date().toISOString(), projects: LS.projects(), series: LS.series(), acuerdos: {}, minutas: {} };
+  const data = { app: 'scribe', version: 2, exported_at: new Date().toISOString(), firma: LS.firma(), projects: LS.projects(), series: LS.series(), acuerdos: {}, minutas: {} };
   LS.series().forEach(s => { data.acuerdos[s.id] = LS.acuerdos(s.id); data.minutas[s.id] = LS.minutas(s.id); });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -820,6 +909,7 @@ $('importFile').addEventListener('change', e => {
       LS.setSeries(data.series || []);
       Object.entries(data.acuerdos || {}).forEach(([sid, a]) => LS.setAcuerdos(sid, a));
       Object.entries(data.minutas || {}).forEach(([sid, m]) => LS.setMinutas(sid, m));
+      if (typeof data.firma === 'string') LS.setFirma(data.firma);
       localStorage.setItem('scribe_schema', '2');
       cargarProyectos();
       toast('Respaldo importado correctamente.');

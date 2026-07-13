@@ -274,6 +274,15 @@ input[type="checkbox"] { width: auto; accent-color: var(--scribe); }
 
 #histPreview { width: 100%; height: 440px; border: 1px solid var(--glass-brd); border-radius: 14px; background: #fff; margin-top: 12px; }
 
+.btn.scope-on { background: linear-gradient(135deg, var(--scribe), var(--rose)); color: #fff; border-color: transparent; }
+.hist-group { margin-bottom: 14px; }
+.hist-group .hg-head { font-size: 0.8rem; font-weight: 800; color: var(--scribe); margin: 4px 0 7px; display: flex; align-items: center; gap: 10px; }
+.hist-group .hg-count { font-size: 0.66rem; font-weight: 700; color: var(--text-soft); border: 1px solid var(--glass-brd); border-radius: 9999px; padding: 2px 9px; }
+
+/* columna Ítem editable */
+td .f-item { text-align: center; font-weight: 700; color: var(--scribe-soft); }
+td.num { width: 64px; }
+
 /* ════════ Toasts ════════ */
 .toast-wrap { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 10px; align-items: center; pointer-events: none; }
 .toast {

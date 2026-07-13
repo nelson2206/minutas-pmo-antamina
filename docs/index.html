@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
 <script defer src="https://umami-mbc.vercel.app/script.js" data-website-id="c236585d-7823-4d53-9d58-4863f2653451"></script>
 </head>
 <body>
@@ -41,6 +41,15 @@
       <button class="btn primary" id="btnGuardarKey">Guardar</button>
     </div>
     <p class="hint" id="keyStatus"></p>
+    <hr class="cfg-sep">
+    <label class="cfg-lbl">Firma del correo (opcional)</label>
+    <p class="hint">Aparece al final de la minuta. Una línea por renglón (nombre, área, teléfono…).</p>
+    <div class="row">
+      <div class="field grow">
+        <textarea id="firmaInput" rows="3" placeholder="Ronald Lora Veramendi&#10;Business Consulting | Industria & Consumo&#10;T: +51 990 936 933"></textarea>
+      </div>
+      <button class="btn primary" id="btnGuardarFirma">Guardar firma</button>
+    </div>
     <hr class="cfg-sep">
     <label class="cfg-lbl">Respaldo de datos</label>
     <p class="hint">Tus proyectos, tipos de reunión, acuerdos y minutas viven solo en este navegador. Descarga un respaldo para no perderlos o para moverlos a otra PC.</p>
@@ -89,7 +98,11 @@
     </div>
     <div id="histResults" class="hist-results"></div>
     <hr class="cfg-sep">
-    <label class="cfg-lbl" id="serieMinutasLabel">Minutas archivadas de este tipo de reunión</label>
+    <label class="cfg-lbl" id="serieMinutasLabel">Minutas archivadas</label>
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn secondary scope-on" id="scopeSerie" data-scope="serie">Este tipo de reunión</button>
+      <button class="btn secondary" id="scopeProyecto" data-scope="proyecto">Todo el proyecto</button>
+    </div>
     <div id="serieMinutas" class="minutas-list"></div>
     <iframe id="histPreview" class="hidden" title="Minuta archivada"></iframe>
   </section>
@@ -115,7 +128,7 @@
       <table id="tablaAcuerdos">
         <thead>
           <tr>
-            <th>N°</th>
+            <th>Ítem</th>
             <th>Acción / Compromiso</th>
             <th>Responsable</th>
             <th>Estado</th>
@@ -206,6 +219,6 @@
 <!-- Toasts -->
 <div class="toast-wrap" id="toastWrap"></div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
