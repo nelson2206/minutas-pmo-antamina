@@ -188,11 +188,11 @@ const GEMINI_SCHEMA = {
 
 async function callClaude(system, userMessage) {
   const response = await anthropic.messages.create({
-    model: 'claude-opus-4-8',
+    model: 'claude-opus-5-5',
     max_tokens: 16000,
     thinking: { type: 'adaptive' },
     system,
-    output_config: { format: { type: 'json_schema', schema: MINUTA_SCHEMA } },
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: MINUTA_SCHEMA } },
     messages: [{ role: 'user', content: userMessage }],
   });
   if (response.stop_reason === 'refusal') {
@@ -260,7 +260,7 @@ ${transcript}`;
       : await callClaude(system, userMessage);
     minuta.lunes_semana = lunesSemana;
     minuta.acuerdos = minuta.acuerdos.filter(a => visibleEnMinuta(a, lunesSemana));
-    res.json({ minuta, project, engine: PROVIDER === 'gemini' ? `Gemini (${GEMINI_MODEL})` : 'Claude (claude-opus-4-8)' });
+    res.json({ minuta, project, engine: PROVIDER === 'gemini' ? `Gemini (${GEMINI_MODEL})` : 'Claude (claude-opus-5-5)' });
   } catch (err) {
     console.error(err);
     const msg = err.status === 401 || err.status === 403
