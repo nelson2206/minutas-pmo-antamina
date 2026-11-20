@@ -1,0 +1,40 @@
+// Scribe · Worker de Cloudflare: sirve la pagina (docs/) y el intermediario de Gemini.
+// Desplegar (desde la carpeta worker/):  npx wrangler deploy
+//
+// Secretos, NUNCA en este archivo (los carga el administrador):
+//   npx wrangler secret put GEMINI_API_KEY   (clave de Google AI Studio)
+//   npx wrangler secret put ACCESS_CODE      (codigo de equipo que se comparte con los usuarios)
+//
+// Corte de dominio (solo con OK de Nelson y despues de borrar el CNAME en Cloudflare DNS):
+// agregar al final de este archivo
+//   "routes": [{ "pattern": "minutas.mbc-latam.com", "custom_domain": true }]
+{
+  "name": "scribe-web",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+
+  // La pagina estatica es la carpeta docs/ (la misma que sirve GitHub Pages).
+  // Solo /api/* pasa por el Worker; todo lo demas lo atiende el CDN directo.
+  "assets": {
+    "directory": "../docs",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Contador diario de llamadas y tokens (solo numeros, nunca contenido).
+  "kv_namespaces": [
+    { "binding": "SCRIBE_USO", "id": "5134a526eae14132916514baaeb0e49f" }
+  ],
+
+  "vars": {
+    // Modelo fijo en el servidor: el navegador no elige modelo.
+    // Google anuncia que desde el 2026-12-01 gemini-2.5-flash se redirige solo a
+    // gemini-3.5-flash-lite (mismas tarifas). Para cambiarlo antes: editar esta linea y desplegar.
+    "GEMINI_MODEL": "gemini-2.5-flash",
+    "MAX_LLAMADAS_DIA": "300",
+    "MAX_BYTES_PEDIDO": "2097152",
+    // Registro central de gasto de IA del ecosistema (Pulse).
+    "PULSE_URL": "https://pulse.mbc-latam.com/api/ai-usage"
+  }
+}

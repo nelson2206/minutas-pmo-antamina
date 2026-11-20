@@ -16,7 +16,7 @@
 <body>
 <div class="grain"></div>
 <header>
-  <button class="btn ghost" id="btnConfig">⚙ API key</button>
+  <button class="btn ghost" id="btnConfig">⚙ Acceso a Gemini</button>
   <p class="eyebrow"><span class="dot"></span> PMO Antamina · Minsait Business Consulting</p>
   <h1><span class="scribe">Scribe</span> · Generador de Minutas</h1>
   <p class="sub">El Escriba — asiste a cada reunión, redacta la minuta y no olvida ningún compromiso.</p>
@@ -32,8 +32,24 @@
 <main>
   <section class="card hidden" id="panelConfig">
     <h2>Configuración</h2>
-    <p class="hint">Scribe usa Gemini para redactar la minuta. Pega tu API key de <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> — se guarda solo en este navegador, nunca sale de tu equipo salvo hacia la API de Google.</p>
+    <label class="cfg-lbl" for="modoIA">Acceso a Gemini</label>
+    <p class="hint">Scribe usa Gemini para redactar la minuta. Elige cómo conectarte: con el <b>código de equipo</b> (te lo da el COE IA; las minutas pasan por el servidor de Scribe hacia Google y <b>no se guarda su contenido</b>) o con <b>tu propia clave</b> de <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> (se guarda solo en este navegador y la transcripción va directo a Google).</p>
     <div class="row">
+      <div class="field grow">
+        <select id="modoIA">
+          <option value="codigo">Código de equipo</option>
+          <option value="clave">Mi propia clave</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" id="campoCodigo">
+      <div class="field grow">
+        <label for="codigoEquipo">Código de equipo</label>
+        <input type="password" id="codigoEquipo" placeholder="Código que te dio el COE IA" autocomplete="off">
+      </div>
+      <button class="btn primary" id="btnGuardarCodigo">Guardar</button>
+    </div>
+    <div class="row hidden" id="campoClave">
       <div class="field grow">
         <label for="apiKey">Gemini API key</label>
         <input type="password" id="apiKey" placeholder="AIza... / AQ....">
@@ -220,6 +236,6 @@
 <!-- Toasts -->
 <div class="toast-wrap" id="toastWrap"></div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

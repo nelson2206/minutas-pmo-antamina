@@ -10,6 +10,16 @@ const genId = () => Math.random().toString(36).slice(2, 10);
 const LS = {
   key: () => localStorage.getItem('scribe_gemini_key') || '',
   setKey: v => localStorage.setItem('scribe_gemini_key', v),
+  // Cómo se llama a Gemini: 'codigo' (código de equipo, vía el servidor de Scribe) o 'clave' (clave propia).
+  // Quien ya tenía una clave guardada y nunca eligió sigue con ella, para no romperle el flujo.
+  modo: () => {
+    const m = localStorage.getItem('scribe_modo');
+    if (m === 'codigo' || m === 'clave') return m;
+    return localStorage.getItem('scribe_gemini_key') ? 'clave' : 'codigo';
+  },
+  setModo: v => localStorage.setItem('scribe_modo', v),
+  codigo: () => localStorage.getItem('scribe_codigo') || '',
+  setCodigo: v => localStorage.setItem('scribe_codigo', v),
   firma: () => localStorage.getItem('scribe_firma') || '',
   setFirma: v => localStorage.setItem('scribe_firma', v),
   projects: () => JSON.parse(localStorage.getItem('scribe_projects') || '[]'),
@@ -105,17 +115,37 @@ function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// ---------- Configuración de API key ----------
+// ---------- Configuración de acceso a Gemini (código de equipo o clave propia) ----------
+
+const credencialLista = () => (LS.modo() === 'codigo' ? Boolean(LS.codigo()) : Boolean(LS.key()));
 
 function refreshKeyStatus() {
-  $('keyStatus').textContent = LS.key() ? 'API key configurada en este navegador.' : 'Aún no hay API key configurada.';
+  const modo = LS.modo();
+  $('modoIA').value = modo;
+  $('campoCodigo').classList.toggle('hidden', modo !== 'codigo');
+  $('campoClave').classList.toggle('hidden', modo !== 'clave');
+  $('keyStatus').textContent = modo === 'codigo'
+    ? (LS.codigo() ? 'Código de equipo guardado en este navegador.' : 'Aún no hay código de equipo guardado.')
+    : (LS.key() ? 'API key propia guardada en este navegador.' : 'Aún no hay API key propia guardada.');
 }
 
 $('btnConfig').addEventListener('click', () => {
   $('panelConfig').classList.toggle('hidden');
   $('apiKey').value = LS.key();
+  $('codigoEquipo').value = LS.codigo();
   $('firmaInput').value = LS.firma();
   refreshKeyStatus();
+});
+
+$('modoIA').addEventListener('change', e => {
+  LS.setModo(e.target.value);
+  refreshKeyStatus();
+});
+
+$('btnGuardarCodigo').addEventListener('click', () => {
+  LS.setCodigo($('codigoEquipo').value.trim());
+  refreshKeyStatus();
+  if (LS.codigo()) toast('Código de equipo guardado en este navegador.');
 });
 
 $('btnGuardarKey').addEventListener('click', () => {
@@ -355,19 +385,42 @@ Instrucciones:
 - No inventes acuerdos, responsables ni fechas sin sustento en la transcripción o los históricos.`;
 }
 
+// Mensaje del servidor de Scribe (formato { error: { message } }), si lo hay.
+async function mensajeDelServidor(r) {
+  try { return (await r.json())?.error?.message || ''; } catch { return ''; }
+}
+
 async function callGemini(system, userMessage) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': LS.key() },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-      generationConfig: { responseMimeType: 'application/json', responseSchema: GEMINI_SCHEMA, temperature: 0.2 },
-    }),
+  const cuerpo = JSON.stringify({
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    generationConfig: { responseMimeType: 'application/json', responseSchema: GEMINI_SCHEMA, temperature: 0.2 },
   });
+  const conCodigo = LS.modo() === 'codigo';
+  let r;
+  if (conCodigo) {
+    // Vía el servidor de Scribe (mismo dominio): él pone la clave y el modelo.
+    r = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-scribe-code': LS.codigo() },
+      body: cuerpo,
+    });
+  } else {
+    // Clave propia: directo a Google desde este navegador (el modelo lo elige la página).
+    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': LS.key() },
+      body: cuerpo,
+    });
+  }
   if (!r.ok) {
-    if ([400, 401, 403].includes(r.status)) throw new Error('API key inválida o sin permisos. Revisa la configuración (botón ⚙ API key).');
+    if (conCodigo) {
+      if (r.status === 401) throw new Error('Código de equipo incorrecto. Revisa la configuración (botón ⚙ Acceso a Gemini).');
+      if (r.status === 404 || r.status === 405) throw new Error('El código de equipo solo funciona en minutas.mbc-latam.com. Desde esta dirección usa "Mi propia clave" en la configuración.');
+      const msg = await mensajeDelServidor(r);
+      throw new Error(msg || `Error del servidor de Scribe (${r.status}). Inténtalo de nuevo.`);
+    }
+    if ([400, 401, 403].includes(r.status)) throw new Error('API key inválida o sin permisos. Revisa la configuración (botón ⚙ Acceso a Gemini).');
     if (r.status === 503) throw new Error('Gemini está con alta demanda ahora mismo. Espera unos segundos e inténtalo de nuevo.');
     throw new Error(`Error de Gemini (${r.status}). Inténtalo de nuevo.`);
   }
@@ -388,10 +441,12 @@ $('btnGenerar').addEventListener('click', async () => {
   const p = proyectoActual();
   const s = serieActual();
   if (!p || !s) return setStatus('status', 'Selecciona un proyecto y un tipo de reunión (o créalos).', true);
-  if (!LS.key()) {
+  if (!credencialLista()) {
     $('panelConfig').classList.remove('hidden');
     refreshKeyStatus();
-    return setStatus('status', 'Configura tu API key de Gemini primero (botón ⚙).', true);
+    return setStatus('status', LS.modo() === 'codigo'
+      ? 'Escribe el código de equipo primero (botón ⚙).'
+      : 'Configura tu API key de Gemini primero (botón ⚙).', true);
   }
   const transcript = $('transcript').value.trim();
   if (!transcript) return setStatus('status', 'Pega la transcripción primero.', true);
@@ -924,8 +979,9 @@ $('importFile').addEventListener('change', e => {
       const data = JSON.parse(reader.result);
       if (data.app !== 'scribe' || !Array.isArray(data.projects)) throw new Error('Archivo no válido');
       if (!confirm('Esto reemplazará TODOS los proyectos, tipos de reunión, acuerdos y minutas de este navegador por los del respaldo. ¿Continuar?')) return;
-      // Limpiar datos scribe actuales (menos la API key)
-      Object.keys(localStorage).filter(k => k.startsWith('scribe_') && k !== 'scribe_gemini_key').forEach(k => localStorage.removeItem(k));
+      // Limpiar datos scribe actuales (menos el acceso a Gemini: clave, código y modo)
+      const CONSERVAR = ['scribe_gemini_key', 'scribe_codigo', 'scribe_modo'];
+      Object.keys(localStorage).filter(k => k.startsWith('scribe_') && !CONSERVAR.includes(k)).forEach(k => localStorage.removeItem(k));
       LS.setProjects(data.projects);
       LS.setSeries(data.series || []);
       Object.entries(data.acuerdos || {}).forEach(([sid, a]) => LS.setAcuerdos(sid, a));
@@ -949,4 +1005,4 @@ migrar();
 seedInicial();
 cargarProyectos();
 setStep(1);
-if (!LS.key()) { $('panelConfig').classList.remove('hidden'); refreshKeyStatus(); }
+if (!credencialLista()) { $('panelConfig').classList.remove('hidden'); refreshKeyStatus(); }

@@ -1,3 +1,6 @@
 node_modules/
 .env
 data/acuerdos/*.json
+.dev.vars
+.wrangler/
+worker/node_modules/
